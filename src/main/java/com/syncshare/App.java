@@ -1,51 +1,212 @@
+
 package com.syncshare;
 
-import com.syncshare.network.TcpServer;
-import com.syncshare.network.TcpClient;
+import com.syncshare.approval.ApprovalManager;
+import com.syncshare.network.PeerServer;
+import com.syncshare.transfer.FileSender;
 
+import java.net.Socket;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class App {
-   
+
+    private static final int PORT = 5050;
+
     public static void main(String[] args) {
 
-        Scanner scanner = new Scanner(System.in);
+        ApprovalManager approvals = new ApprovalManager();
 
-        try {
-            System.out.println("===== SyncShare =====");
-            System.out.println("1. Receive File");
-            System.out.println("2. Send File");
-            System.out.print("Choose option: ");
+        ExecutorService sendWorkers =
+            Executors.newFixedThreadPool(3);
 
-            String choice = scanner.nextLine();
+        try (
+            Scanner scanner = new Scanner(System.in);
+            PeerServer server = new PeerServer(PORT, approvals)
+        ) {
 
-            if (choice.equals("1")) {
+            server.start();
 
-                TcpServer.start(5050);
+            System.out.println("\n========== SyncShare ==========");
+            System.out.println("Background receiver running.");
+            printHelp();
 
-            } else if (choice.equals("2")) {
+            boolean running = true;
 
-                System.out.print("Receiver IP: ");
-                String ip = scanner.nextLine();
+            while (running) {
 
-                System.out.print("File Path: ");
-                String filePath = scanner.nextLine();
+                System.out.print("\nsyncshare> ");
 
-                TcpClient.send(
-                    ip,
-                    5050,
-                    Path.of(filePath)
-                );
+                if (!scanner.hasNextLine()) {
+                    break;
+                }
 
-            } else {
-                System.out.println("Invalid option!");
+                String command = scanner.nextLine().trim();
+
+                if (command.isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = command.split("\\s+", 3);
+
+                switch (parts[0].toLowerCase()) {
+
+                    case "send" -> {
+
+                        if (parts.length < 3) {
+                            System.out.println(
+                                "Usage: send <IP> <FILE_PATH>"
+                            );
+                            break;
+                        }
+
+                        String ip = parts[1];
+                        Path file = Path.of(parts[2]);
+
+                        if (!Files.isRegularFile(file)) {
+                            System.out.println(
+                                "File not found: " + file
+                            );
+                            break;
+                        }
+
+                        sendWorkers.submit(() -> {
+
+                            try (Socket socket =
+                                    new Socket(ip, PORT)) {
+
+                                socket.setSoTimeout(180_000);
+
+                                System.out.println(
+                                    "\nSending: " + file
+                                );
+
+                                FileSender.send(socket, file);
+
+                            } catch (Exception e) {
+
+                                System.err.println(
+                                    "Send failed: " + e.getMessage()
+                                );
+                            }
+                        });
+
+                        System.out.println(
+                            "Outgoing transfer task submitted."
+                        );
+                    }
+
+                    case "pending" -> approvals.showPending();
+
+                    case "accept" -> {
+
+                        if (parts.length < 2) {
+                            System.out.println(
+                                "Usage: accept <ID>"
+                            );
+                            break;
+                        }
+
+                        try {
+                            int id = Integer.parseInt(parts[1]);
+
+                            if (approvals.decide(id, true)) {
+                                System.out.println(
+                                    "Accepted request #" + id
+                                );
+                            } else {
+                                System.out.println(
+                                    "Request not found or expired."
+                                );
+                            }
+
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid request ID.");
+                        }
+                    }
+
+                    case "reject" -> {
+
+                        if (parts.length < 2) {
+                            System.out.println(
+                                "Usage: reject <ID>"
+                            );
+                            break;
+                        }
+
+                        try {
+                            int id = Integer.parseInt(parts[1]);
+
+                            if (approvals.decide(id, false)) {
+                                System.out.println(
+                                    "Rejected request #" + id
+                                );
+                            } else {
+                                System.out.println(
+                                    "Request not found or expired."
+                                );
+                            }
+
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid request ID.");
+                        }
+                    }
+
+                    case "status" -> System.out.println(
+                        server.isRunning()
+                            ? "TCP Receiver: Running"
+                            : "TCP Receiver: Stopped"
+                    );
+
+                    case "help" -> printHelp();
+
+                    case "exit" -> {
+                        running = false;
+                        approvals.rejectAll();
+                        System.out.println("Exiting SyncShare...");
+                    }
+
+                    default -> System.out.println(
+                        "Unknown command. Type help."
+                    );
+                }
             }
 
         } catch (Exception e) {
-            System.out.println(
-                "Error: " + e.getMessage()
+
+            System.err.println(
+                "Application error: " + e.getMessage()
             );
+
+        } finally {
+
+            approvals.rejectAll();
+            sendWorkers.shutdownNow();
+
+            try {
+                sendWorkers.awaitTermination(
+                    5,
+                    TimeUnit.SECONDS
+                );
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
+    }
+
+    private static void printHelp() {
+
+        System.out.println("\nAvailable Commands:");
+        System.out.println("send <IP> <FILE_PATH>");
+        System.out.println("pending");
+        System.out.println("accept <ID>");
+        System.out.println("reject <ID>");
+        System.out.println("status");
+        System.out.println("help");
+        System.out.println("exit");
     }
 }
