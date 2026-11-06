@@ -16,8 +16,12 @@ public class FileReceiver {
 
     private static final int BUFFER_SIZE = Protocol.BUFFER_SIZE;
 
-    // Prevent overlapping console approval prompts.
+    // Shared lock for console approval requests
     private static final Object APPROVAL_LOCK = new Object();
+
+    // Shared console input for all receiver workers
+    private static final Scanner CONSOLE =
+            new Scanner(System.in);
 
     public static void receive(Socket socket) throws IOException {
 
@@ -29,28 +33,28 @@ public class FileReceiver {
             socket.getOutputStream()
         );
 
-        // STEP 1: Read Protocol V2 header
+        // STEP 1: Validate Protocol V2 header
         ProtocolIO.readHeader(input);
 
-        // STEP 2: Verify incoming message type
+        // STEP 2: Check incoming message type
         ProtocolIO.expectMessageType(
             input,
             Protocol.FILE_OFFER
         );
 
-        // STEP 3: Receive file information
+        // STEP 3: Read incoming file metadata
         String rawFileName = input.readUTF();
         long fileSize = input.readLong();
         String expectedHash = input.readUTF();
 
-        // STEP 4: Sanitize file name
+        // STEP 4: Sanitize filename
         String safeFileName = rawFileName.replace('\\', '/');
 
         safeFileName = safeFileName.substring(
             safeFileName.lastIndexOf('/') + 1
         );
 
-        // STEP 5: Validate file information
+        // STEP 5: Validate metadata
         if (safeFileName.isBlank()
                 || safeFileName.equals(".")
                 || safeFileName.equals("..")
@@ -64,31 +68,37 @@ public class FileReceiver {
             throw new IOException("Invalid file offer");
         }
 
-        // STEP 6: Ask user to Accept or Reject
-        String choice;
+        // STEP 6: Ask permission using approval lock
+        boolean accepted;
 
         synchronized (APPROVAL_LOCK) {
 
-            System.out.println("\n===== Incoming File Request =====");
+            System.out.println(
+                "\n===== Incoming File Request ====="
+            );
 
             System.out.println(
                 "Sender IP : " + socket.getInetAddress()
             );
 
-            System.out.println("File Name : " + safeFileName);
-            System.out.println("File Size : " + fileSize + " bytes");
+            System.out.println(
+                "File Name : " + safeFileName
+            );
+
+            System.out.println(
+                "File Size : " + fileSize + " bytes"
+            );
 
             System.out.println("\n1. Accept");
             System.out.println("2. Reject");
             System.out.print("Choose option: ");
 
-            Scanner scanner = new Scanner(System.in);
-            choice = scanner.nextLine().trim();
+            String choice = CONSOLE.nextLine().trim();
+
+            accepted = choice.equals("1");
         }
 
-        boolean accepted = choice.equals("1");
-
-        // STEP 7: Send approval response
+        // STEP 7: Send ACCEPT or REJECT
         output.writeByte(
             accepted ? Protocol.ACCEPT : Protocol.REJECT
         );
@@ -96,18 +106,20 @@ public class FileReceiver {
         output.flush();
 
         if (!accepted) {
-            System.out.println("Transfer rejected by receiver.");
+            System.out.println(
+                "Transfer rejected by receiver."
+            );
             return;
         }
 
         System.out.println("Transfer accepted!");
 
-        // STEP 8: Create destination folder
+        // STEP 8: Create received files directory
         Path destinationFolder = Paths.get("received_files");
 
         Files.createDirectories(destinationFolder);
 
-        // Receive into a temporary file first
+        // Write to temporary file until verification
         Path tempFile = Files.createTempFile(
             destinationFolder,
             "syncshare-",
@@ -117,10 +129,9 @@ public class FileReceiver {
         boolean saved = false;
 
         try {
-
             MessageDigest digest = HashUtils.newSha256();
 
-            // STEP 9: Receive file bytes
+            // STEP 9: Receive file data
             try (OutputStream fileOutput =
                     Files.newOutputStream(tempFile)) {
 
@@ -134,7 +145,10 @@ public class FileReceiver {
                     int bytesRead = input.read(
                         buffer,
                         0,
-                        (int) Math.min(buffer.length, remaining)
+                        (int) Math.min(
+                            buffer.length,
+                            remaining
+                        )
                     );
 
                     if (bytesRead == -1) {
@@ -143,41 +157,54 @@ public class FileReceiver {
                         );
                     }
 
-                    fileOutput.write(buffer, 0, bytesRead);
+                    fileOutput.write(
+                        buffer,
+                        0,
+                        bytesRead
+                    );
 
-                    // Update SHA-256 using received bytes
-                    digest.update(buffer, 0, bytesRead);
+                    // Calculate SHA-256 while receiving
+                    digest.update(
+                        buffer,
+                        0,
+                        bytesRead
+                    );
 
                     totalReceived += bytesRead;
                     remaining -= bytesRead;
 
-                    double progress = (
+                    double progress =
                         totalReceived * 100.0
-                    ) / Math.max(fileSize, 1);
+                        / Math.max(fileSize, 1);
 
                     System.out.printf(
-                        "\rReceiving: %.2f%%",
+                        "\rReceiving [%s]: %.2f%%",
+                        safeFileName,
                         progress
                     );
                 }
             }
 
-            // STEP 10: Calculate received file hash
-            String actualHash = HexFormat.of().formatHex(
-                digest.digest()
-            );
+            // STEP 10: Generate received file hash
+            String actualHash = HexFormat.of()
+                    .formatHex(digest.digest());
 
-            // STEP 11: Compare expected and actual hash
-            boolean verified = actualHash.equals(expectedHash);
+            // STEP 11: Compare hashes
+            boolean verified =
+                    actualHash.equals(expectedHash);
 
             if (verified) {
 
-                // Save only a verified file
                 Path destination = destinationFolder.resolve(
-                    UUID.randomUUID() + "-" + safeFileName
+                    UUID.randomUUID()
+                        + "-"
+                        + safeFileName
                 );
 
-                Files.move(tempFile, destination);
+                Files.move(
+                    tempFile,
+                    destination
+                );
 
                 saved = true;
 
@@ -186,34 +213,37 @@ public class FileReceiver {
                 );
 
                 System.out.println(
-                    "File saved: " + destination.toAbsolutePath()
+                    "File saved: "
+                    + destination.toAbsolutePath()
                 );
 
             } else {
 
                 System.out.println(
-                    "\nSHA-256 MISMATCH: File verification failed!"
+                    "\nSHA-256 MISMATCH: Verification failed!"
                 );
 
                 System.out.println(
-                    "Expected: " + expectedHash
+                    "Expected Hash: " + expectedHash
                 );
 
                 System.out.println(
-                    "Actual  : " + actualHash
+                    "Actual Hash  : " + actualHash
                 );
             }
 
-            // STEP 12: Send final verification response
+            // STEP 12: Inform sender of verification result
             output.writeByte(
-                verified ? Protocol.VERIFIED : Protocol.ERROR
+                verified
+                    ? Protocol.VERIFIED
+                    : Protocol.ERROR
             );
 
             output.flush();
 
         } finally {
 
-            // Delete incomplete or corrupted temporary files
+            // Remove incomplete or corrupted files
             if (!saved) {
                 Files.deleteIfExists(tempFile);
             }
