@@ -1,206 +1,245 @@
+
 package com.syncshare.transfer;
 
 import com.syncshare.network.Protocol;
 import com.syncshare.network.ProtocolIO;
+import com.syncshare.events.TransferListener;
+import com.syncshare.events.ConsoleTransferListener;
 
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.*;
+import java.util.Objects;
 
 public class FileSender {
 
     private static final int CHUNK_SIZE = Protocol.BUFFER_SIZE;
 
+    // Existing method: keeps TcpClient working
     public static void send(Socket socket, Path file)
             throws IOException {
 
-        // 1. Validate source file
-        if (!Files.isRegularFile(file)) {
-            throw new IOException("File not found: " + file);
-        }
+        send(socket, file, new ConsoleTransferListener());
+    }
 
-        long fileSize = Files.size(file);
+    // New method: supports Member 3's JavaFX listener
+    public static void send(
+            Socket socket,
+            Path file,
+            TransferListener listener
+    ) throws IOException {
 
-        if (fileSize > Protocol.MAX_FILE_SIZE) {
-            throw new IOException("File exceeds size limit");
-        }
+        Objects.requireNonNull(socket, "socket");
+        Objects.requireNonNull(file, "file");
+        Objects.requireNonNull(listener, "listener");
 
-        DataOutputStream output = new DataOutputStream(
-            socket.getOutputStream()
-        );
+        String fileName = file.getFileName().toString();
 
-        DataInputStream input = new DataInputStream(
-            socket.getInputStream()
-        );
+        try {
+            // STEP 1: Validate file
+            if (!Files.isRegularFile(file)) {
+                throw new IOException("File not found: " + file);
+            }
 
-        // 2. Calculate original file hash
-        String senderHash = HashUtils.calculateSHA256(file);
+            long fileSize = Files.size(file);
 
-        // 3. Send Protocol V2 header
-        ProtocolIO.writeHeader(output);
+            if (fileSize > Protocol.MAX_FILE_SIZE) {
+                throw new IOException("File exceeds size limit");
+            }
 
-        // 4. Send FILE_OFFER
-        ProtocolIO.writeMessageType(
-            output,
-            Protocol.FILE_OFFER
-        );
+            // STEP 2: Open TCP streams
+            DataOutputStream output = new DataOutputStream(
+                socket.getOutputStream()
+            );
 
-        output.writeUTF(file.getFileName().toString());
-        output.writeLong(fileSize);
-        output.writeUTF(senderHash);
-        output.flush();
+            DataInputStream input = new DataInputStream(
+                socket.getInputStream()
+            );
 
-        System.out.println("File offer sent.");
-        System.out.println("Waiting for receiver approval...");
+            // STEP 3: Calculate SHA-256
+            String senderHash = HashUtils.calculateSHA256(file);
 
-        // 5. Receive ACCEPT / REJECT
-        byte response = input.readByte();
+            // STEP 4: Send Protocol V2 header and offer
+            ProtocolIO.writeHeader(output);
+            ProtocolIO.writeMessageType(
+                output,
+                Protocol.FILE_OFFER
+            );
 
-        if (response == Protocol.REJECT) {
-            System.out.println("Receiver rejected the file.");
-            return;
-        }
+            output.writeUTF(fileName);
+            output.writeLong(fileSize);
+            output.writeUTF(senderHash);
+            output.flush();
 
-        if (response != Protocol.ACCEPT) {
-            throw new IOException("Unexpected approval response");
-        }
+            System.out.println("File offer sent.");
+            System.out.println("Waiting for receiver approval...");
 
-        
-     System.out.println("Receiver accepted the file.");
+            // STEP 5: Accept or Reject
+            byte response = input.readByte();
 
-      // Receive resume request from receiver
-    byte resumeType = input.readByte();
+            if (response == Protocol.REJECT) {
+                System.out.println("Receiver rejected the file.");
+                return;
+            }
 
-       if (resumeType != Protocol.RESUME_REQUEST) {
-               throw new IOException(
-                "Expected RESUME_REQUEST, received: " + resumeType
-          );
-     }
-
-// Receiver tells us where to continue
-long resumeOffset = input.readLong();
-
-// Validate the resume offset
-if (resumeOffset < 0 || resumeOffset > fileSize) {
-    throw new IOException(
-        "Invalid resume offset: " + resumeOffset
-    );
-}
-
-System.out.println(
-    "Resume requested from byte: " + resumeOffset
-);
-
-// Confirm source file size
-if (Files.size(file) != fileSize) {
-    throw new IOException("Source file size changed");
-}
-
-
-        // 7. Send file in acknowledged chunks
-
-long offset = resumeOffset;
-int chunkNumber = 0;
-
-try (InputStream fileInput = Files.newInputStream(file)) {
-
-    // Skip bytes already acknowledged and saved by receiver
-    fileInput.skipNBytes(resumeOffset);
-
-    byte[] buffer = new byte[CHUNK_SIZE];
-
-
-            while (offset < fileSize) {
-
-                int toRead = (int) Math.min(
-                    CHUNK_SIZE,
-                    fileSize - offset
-                );
-
-                int bytesRead = fileInput.read(
-                    buffer, 0, toRead
-                );
-
-                if (bytesRead <= 0) {
-                    throw new EOFException(
-                        "Source file ended unexpectedly"
-                    );
-                }
-
-                // Send FILE_CHUNK frame
-                output.writeByte(Protocol.FILE_CHUNK);
-                output.writeLong(offset);
-                output.writeInt(bytesRead);
-                output.write(buffer, 0, bytesRead);
-                output.flush();
-
-                // Wait for receiver ACK
-                byte ackType = input.readByte();
-
-                if (ackType == Protocol.ERROR) {
-                    throw new IOException(
-                        "Receiver rejected chunk"
-                    );
-                }
-
-                if (ackType != Protocol.CHUNK_ACK) {
-                    throw new IOException(
-                        "Expected CHUNK_ACK, received: "
-                        + ackType
-                    );
-                }
-
-                long acknowledgedOffset = input.readLong();
-                long expectedOffset = offset + bytesRead;
-
-                if (acknowledgedOffset != expectedOffset) {
-                    throw new IOException(
-                        "Invalid ACK offset: "
-                        + acknowledgedOffset
-                    );
-                }
-
-                offset = acknowledgedOffset;
-                chunkNumber++;
-
-                double progress =
-                    offset * 100.0 / Math.max(fileSize, 1);
-
-                System.out.printf(
-                    "\rChunk %d ACK | Progress: %.2f%%",
-                    chunkNumber,
-                    progress
+            if (response != Protocol.ACCEPT) {
+                throw new IOException(
+                    "Unexpected response: " + response
                 );
             }
-        }
 
-        // 8. Tell receiver all file chunks are sent
-        output.writeByte(Protocol.COMPLETE);
-        output.flush();
+            System.out.println("Receiver accepted the file.");
 
-        System.out.println("\nAll chunks acknowledged.");
-        System.out.println("Waiting for SHA-256 verification...");
+            // STEP 6: Resume negotiation
+            byte resumeType = input.readByte();
 
-        // 9. Receive final verification result
-        byte result = input.readByte();
+            if (resumeType != Protocol.RESUME_REQUEST) {
+                throw new IOException(
+                    "Expected RESUME_REQUEST, received: "
+                    + resumeType
+                );
+            }
 
-        if (result == Protocol.VERIFIED) {
+            long resumeOffset = input.readLong();
+
+            if (resumeOffset < 0 || resumeOffset > fileSize) {
+                throw new IOException(
+                    "Invalid resume offset: " + resumeOffset
+                );
+            }
+
+            // Until checkpoint integration, only zero is safe.
+            if (resumeOffset != 0L) {
+                throw new IOException(
+                    "Non-zero resume requires verified checkpoint integration"
+                );
+            }
+
+            if (Files.size(file) != fileSize) {
+                throw new IOException("Source file size changed");
+            }
+
+            System.out.println(
+                "Resume requested from byte: " + resumeOffset
+            );
+
+            // STEP 7: Started event
+            listener.onStarted(fileName, fileSize);
+
+            long offset = resumeOffset;
+            int chunkNumber = 0;
+
+            // STEP 8: Transfer chunks
+            try (InputStream fileInput = Files.newInputStream(file)) {
+
+                fileInput.skipNBytes(resumeOffset);
+
+                byte[] buffer = new byte[CHUNK_SIZE];
+
+                while (offset < fileSize) {
+
+                    int toRead = (int) Math.min(
+                        CHUNK_SIZE,
+                        fileSize - offset
+                    );
+
+                    int bytesRead = fileInput.read(
+                        buffer, 0, toRead
+                    );
+
+                    if (bytesRead <= 0) {
+                        throw new EOFException(
+                            "Source file ended unexpectedly"
+                        );
+                    }
+
+                    // Send FILE_CHUNK message
+                    output.writeByte(Protocol.FILE_CHUNK);
+                    output.writeLong(offset);
+                    output.writeInt(bytesRead);
+                    output.write(buffer, 0, bytesRead);
+                    output.flush();
+
+                    // Wait for CHUNK_ACK
+                    byte ackType = input.readByte();
+
+                    if (ackType == Protocol.ERROR) {
+                        throw new IOException(
+                            "Receiver reported chunk error"
+                        );
+                    }
+
+                    if (ackType != Protocol.CHUNK_ACK) {
+                        throw new IOException(
+                            "Expected CHUNK_ACK, received: "
+                            + ackType
+                        );
+                    }
+
+                    long acknowledgedOffset = input.readLong();
+                    long expectedOffset = offset + bytesRead;
+
+                    if (acknowledgedOffset != expectedOffset) {
+                        throw new IOException(
+                            "Invalid ACK offset: "
+                            + acknowledgedOffset
+                        );
+                    }
+
+                    offset = acknowledgedOffset;
+                    chunkNumber++;
+
+                    // STEP 9: Progress event after ACK
+                    listener.onProgress(
+                        fileName,
+                        offset,
+                        fileSize
+                    );
+
+                    System.out.printf(
+                        "\rChunk %d ACK | %.2f%%",
+                        chunkNumber,
+                        offset * 100.0 / Math.max(fileSize, 1)
+                    );
+                }
+            }
+
+            // STEP 10: Send COMPLETE
+            output.writeByte(Protocol.COMPLETE);
+            output.flush();
+
+            System.out.println("\nAll chunks acknowledged.");
+            System.out.println(
+                "Waiting for SHA-256 verification..."
+            );
+
+            // STEP 11: Final verification
+            byte result = input.readByte();
+
+            if (result != Protocol.VERIFIED) {
+                throw new IOException(
+                    "Transfer not verified. Response: "
+                    + result
+                );
+            }
+
+            // Ensure empty files also report 100% progress
+            if (fileSize == 0) {
+                listener.onProgress(fileName, 0, 0);
+            }
+
+            // STEP 12: Completion event
+            listener.onCompleted(fileName);
 
             System.out.println(
                 "SUCCESS: File transferred and verified!"
             );
 
-        } else if (result == Protocol.ERROR) {
+        } catch (IOException e) {
 
-            throw new IOException(
-                "Receiver reported verification failure"
-            );
-
-        } else {
-
-            throw new IOException(
-                "Unexpected final response: " + result
-            );
+            // STEP 13: Error event
+            listener.onError(fileName, e);
+            throw e;
         }
     }
 }
