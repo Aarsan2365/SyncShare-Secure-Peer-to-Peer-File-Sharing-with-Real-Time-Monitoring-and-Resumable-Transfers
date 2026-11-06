@@ -14,15 +14,16 @@ import java.util.UUID;
 
 public class FileReceiver {
 
+    // Each chunk can contain up to 64 KiB
     private static final int CHUNK_SIZE = Protocol.BUFFER_SIZE;
 
+    // Prevent multiple workers from asking for approval simultaneously
     private static final Object APPROVAL_LOCK = new Object();
 
-    private static final Scanner CONSOLE =
-            new Scanner(System.in);
+    // Shared console input
+    private static final Scanner CONSOLE = new Scanner(System.in);
 
-    public static void receive(Socket socket)
-            throws IOException {
+    public static void receive(Socket socket) throws IOException {
 
         DataInputStream input = new DataInputStream(
             socket.getInputStream()
@@ -32,7 +33,7 @@ public class FileReceiver {
             socket.getOutputStream()
         );
 
-        // 1. Validate Protocol V2
+        // STEP 1: Validate SyncShare Protocol V2
         ProtocolIO.readHeader(input);
 
         ProtocolIO.expectMessageType(
@@ -40,18 +41,19 @@ public class FileReceiver {
             Protocol.FILE_OFFER
         );
 
-        // 2. Receive file metadata
+        // STEP 2: Read incoming file information
         String rawName = input.readUTF();
         long fileSize = input.readLong();
         String expectedHash = input.readUTF();
 
+        // STEP 3: Sanitize incoming filename
         String safeName = rawName.replace('\\', '/');
 
         safeName = safeName.substring(
             safeName.lastIndexOf('/') + 1
         );
 
-        // 3. Validate the file offer
+        // STEP 4: Validate file information
         if (safeName.isBlank()
                 || safeName.equals(".")
                 || safeName.equals("..")
@@ -65,7 +67,7 @@ public class FileReceiver {
             throw new IOException("Invalid file offer");
         }
 
-        // 4. Ask receiver approval
+        // STEP 5: Ask receiver to accept or reject
         boolean accepted;
 
         synchronized (APPROVAL_LOCK) {
@@ -75,67 +77,91 @@ public class FileReceiver {
             );
 
             System.out.println(
-                "Sender IP: " + socket.getInetAddress()
+                "Sender IP : " + socket.getInetAddress()
             );
 
-            System.out.println("File: " + safeName);
-            System.out.println("Size: " + fileSize + " bytes");
+            System.out.println("File Name : " + safeName);
+            System.out.println("File Size : " + fileSize + " bytes");
 
-            System.out.println("1. Accept");
+            System.out.println("\n1. Accept");
             System.out.println("2. Reject");
             System.out.print("Choose option: ");
 
             accepted = CONSOLE.nextLine()
-                .trim().equals("1");
+                    .trim()
+                    .equals("1");
         }
 
-        // 5. Send approval response
+        // STEP 6: Send ACCEPT / REJECT response
         output.writeByte(
             accepted ? Protocol.ACCEPT : Protocol.REJECT
         );
+
         output.flush();
 
         if (!accepted) {
-            System.out.println("Transfer rejected.");
+            System.out.println("Transfer rejected by receiver.");
             return;
         }
 
-        System.out.println("Transfer accepted.");
+        System.out.println("Transfer accepted!");
 
-        // 6. Create temporary destination
-        Path folder = Paths.get("received_files");
-        Files.createDirectories(folder);
+        // STEP 7: Send RESUME_REQUEST to sender
+        // Member 2 will later supply a verified checkpoint offset.
+        long resumeOffset = 0L;
 
+        output.writeByte(Protocol.RESUME_REQUEST);
+        output.writeLong(resumeOffset);
+        output.flush();
+
+        System.out.println(
+            "Resume request sent. Offset: " + resumeOffset
+        );
+
+        // STEP 8: Create received files directory
+        Path destinationFolder = Paths.get("received_files");
+
+        Files.createDirectories(destinationFolder);
+
+        // Temporary file used until complete verification
         Path tempFile = Files.createTempFile(
-            folder, "syncshare-", ".part"
+            destinationFolder,
+            "syncshare-",
+            ".part"
         );
 
         boolean saved = false;
 
         try {
+
             MessageDigest digest = HashUtils.newSha256();
 
-            long expectedOffset = 0;
+            long expectedOffset = resumeOffset;
             int chunksReceived = 0;
 
-            // 7. Read and validate each chunk
+            // STEP 9: Receive chunks
             try (OutputStream fileOutput =
                     Files.newOutputStream(tempFile)) {
 
+                byte[] buffer = new byte[CHUNK_SIZE];
+
                 while (expectedOffset < fileSize) {
 
+                    // Read message type
                     byte messageType = input.readByte();
 
                     if (messageType != Protocol.FILE_CHUNK) {
                         throw new IOException(
-                            "Expected FILE_CHUNK"
+                            "Expected FILE_CHUNK, received: "
+                            + messageType
                         );
                     }
 
+                    // Read chunk metadata
                     long offset = input.readLong();
                     int length = input.readInt();
 
-                    // Verify chunk location and size
+                    // Validate offset and length
                     if (offset != expectedOffset
                             || length <= 0
                             || length > CHUNK_SIZE
@@ -146,20 +172,19 @@ public class FileReceiver {
                         );
                     }
 
-                    // Read exactly this chunk's data
-                    byte[] buffer = new byte[length];
-                    input.readFully(buffer);
+                    // Read exactly the announced chunk length
+                    input.readFully(buffer, 0, length);
 
-                    // Write chunk to temporary file
-                    fileOutput.write(buffer);
+                    // Save received bytes
+                    fileOutput.write(buffer, 0, length);
 
                     // Update SHA-256
-                    digest.update(buffer);
+                    digest.update(buffer, 0, length);
 
                     expectedOffset += length;
                     chunksReceived++;
 
-                    // Send ACK for received chunk
+                    // STEP 10: Send chunk ACK
                     output.writeByte(Protocol.CHUNK_ACK);
                     output.writeLong(expectedOffset);
                     output.flush();
@@ -179,26 +204,26 @@ public class FileReceiver {
                 fileOutput.flush();
             }
 
-            // 8. Sender must explicitly finish the transfer
+            // STEP 11: Expect COMPLETE message
             byte completeType = input.readByte();
 
             if (completeType != Protocol.COMPLETE) {
                 throw new IOException(
-                    "Expected COMPLETE message"
+                    "Expected COMPLETE, received: "
+                    + completeType
                 );
             }
 
-            // 9. Verify final file hash
+            // STEP 12: Calculate received file SHA-256
             String actualHash = HexFormat.of()
-                .formatHex(digest.digest());
+                    .formatHex(digest.digest());
 
             boolean verified =
-                actualHash.equals(expectedHash);
+                    actualHash.equals(expectedHash);
 
             if (!verified) {
-
                 System.out.println(
-                    "\nSHA-256 MISMATCH: Transfer failed!"
+                    "\nSHA-256 MISMATCH: Verification failed!"
                 );
 
                 output.writeByte(Protocol.ERROR);
@@ -206,8 +231,8 @@ public class FileReceiver {
                 return;
             }
 
-            // 10. Save verified file
-            Path destination = folder.resolve(
+            // STEP 13: Save verified file
+            Path destination = destinationFolder.resolve(
                 UUID.randomUUID() + "-" + safeName
             );
 
@@ -215,20 +240,21 @@ public class FileReceiver {
             saved = true;
 
             System.out.println(
-                "\nSHA-256 MATCH: File verified!"
+                "\nSHA-256 MATCH: File verified successfully!"
             );
 
             System.out.println(
-                "File saved: " + destination.toAbsolutePath()
+                "File saved: "
+                + destination.toAbsolutePath()
             );
 
-            // 11. Send final success response
+            // STEP 14: Send final verification response
             output.writeByte(Protocol.VERIFIED);
             output.flush();
 
         } catch (IOException e) {
 
-            // Best-effort protocol error response
+            // Send ERROR response when possible
             try {
                 output.writeByte(Protocol.ERROR);
                 output.flush();
@@ -240,6 +266,7 @@ public class FileReceiver {
 
         } finally {
 
+            // Delete any incomplete or corrupted temporary file
             if (!saved) {
                 Files.deleteIfExists(tempFile);
             }

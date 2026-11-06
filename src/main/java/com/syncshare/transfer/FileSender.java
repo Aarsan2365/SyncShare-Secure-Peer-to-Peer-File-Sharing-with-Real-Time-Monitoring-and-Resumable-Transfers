@@ -1,4 +1,3 @@
-
 package com.syncshare.transfer;
 
 import com.syncshare.network.Protocol;
@@ -66,20 +65,50 @@ public class FileSender {
             throw new IOException("Unexpected approval response");
         }
 
-        System.out.println("Receiver accepted the file.");
+        
+     System.out.println("Receiver accepted the file.");
 
-        // 6. Confirm file size has not changed
-        if (Files.size(file) != fileSize) {
-            throw new IOException("Source file size changed");
-        }
+      // Receive resume request from receiver
+    byte resumeType = input.readByte();
+
+       if (resumeType != Protocol.RESUME_REQUEST) {
+               throw new IOException(
+                "Expected RESUME_REQUEST, received: " + resumeType
+          );
+     }
+
+// Receiver tells us where to continue
+long resumeOffset = input.readLong();
+
+// Validate the resume offset
+if (resumeOffset < 0 || resumeOffset > fileSize) {
+    throw new IOException(
+        "Invalid resume offset: " + resumeOffset
+    );
+}
+
+System.out.println(
+    "Resume requested from byte: " + resumeOffset
+);
+
+// Confirm source file size
+if (Files.size(file) != fileSize) {
+    throw new IOException("Source file size changed");
+}
+
 
         // 7. Send file in acknowledged chunks
-        long offset = 0;
-        int chunkNumber = 0;
 
-        try (InputStream fileInput = Files.newInputStream(file)) {
+long offset = resumeOffset;
+int chunkNumber = 0;
 
-            byte[] buffer = new byte[CHUNK_SIZE];
+try (InputStream fileInput = Files.newInputStream(file)) {
+
+    // Skip bytes already acknowledged and saved by receiver
+    fileInput.skipNBytes(resumeOffset);
+
+    byte[] buffer = new byte[CHUNK_SIZE];
+
 
             while (offset < fileSize) {
 
