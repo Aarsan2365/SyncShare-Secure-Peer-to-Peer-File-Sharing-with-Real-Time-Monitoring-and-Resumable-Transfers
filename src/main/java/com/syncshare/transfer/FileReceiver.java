@@ -11,8 +11,11 @@ import com.syncshare.resume.ResumeStore;
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Objects;
 import java.util.Scanner;
+
+import com.syncshare.security.TlsSupport;
 
 public class FileReceiver {
 
@@ -50,6 +53,10 @@ public class FileReceiver {
         );
 
         try {
+
+            String peerId = TlsSupport.authenticate(socket);
+            System.out.println("Authenticated sender: " + peerId);
+
             ProtocolIO.readHeader(input);
             ProtocolIO.expectMessageType(input, Protocol.FILE_OFFER);
 
@@ -104,13 +111,10 @@ public class FileReceiver {
                 return;
             }
 
-            Path folder = Path.of(
-                System.getProperty(
-                    "syncshare.receiveDir",
-                    "received_files"
-                )
-            );
-
+            Path receiveRoot = Paths.get(
+    System.getProperty("syncshare.receiveDir", "received_files")
+);
+Path folder = receiveRoot.resolve(peerId);
             try (ResumeStore store = new ResumeStore(
                     folder,
                     safeName,

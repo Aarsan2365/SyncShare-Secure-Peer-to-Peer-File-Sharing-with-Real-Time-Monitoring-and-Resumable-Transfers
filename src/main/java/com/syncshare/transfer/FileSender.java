@@ -6,11 +6,14 @@ import com.syncshare.events.TransferListener;
 import com.syncshare.network.Protocol;
 import com.syncshare.network.ProtocolIO;
 
+
 import java.io.*;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+
+import com.syncshare.security.TlsSupport;
 
 public class FileSender {
 
@@ -34,6 +37,9 @@ public class FileSender {
         String fileName = file.getFileName().toString();
 
         try {
+
+            String peerId = TlsSupport.authenticate(socket);
+            System.out.println("Authenticated receiver: " + peerId);
             if (!Files.isRegularFile(file)) {
                 throw new IOException("File not found: " + file);
             }
