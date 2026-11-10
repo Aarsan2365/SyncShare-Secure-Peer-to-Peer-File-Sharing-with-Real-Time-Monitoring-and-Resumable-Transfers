@@ -4,6 +4,7 @@ package com.syncshare.network;
 import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
 import com.syncshare.transfer.FileReceiver;
+import com.syncshare.security.TlsSupport;
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -24,7 +25,7 @@ public class PeerServer implements AutoCloseable {
             ApprovalHandler approvalHandler
     ) throws IOException {
 
-        this.serverSocket = new ServerSocket(port);
+        this.serverSocket = TlsSupport.listen(port);
         this.approvalHandler = approvalHandler;
 
         this.workers = new ThreadPoolExecutor(

@@ -5,6 +5,7 @@ import com.syncshare.approval.ApprovalManager;
 import com.syncshare.network.PeerServer;
 import com.syncshare.transfer.FileSender;
 
+import com.syncshare.security.TlsSupport;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,7 +78,7 @@ public class App {
                         sendWorkers.submit(() -> {
 
                             try (Socket socket =
-                                    new Socket(ip, PORT)) {
+                                TlsSupport.connect(ip, PORT))  {
 
                                 socket.setSoTimeout(180_000);
 

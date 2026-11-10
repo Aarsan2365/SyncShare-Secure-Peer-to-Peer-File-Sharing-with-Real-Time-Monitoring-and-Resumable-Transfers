@@ -10,6 +10,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import com.syncshare.security.TlsSupport;
 
 public class TcpServer {
 
@@ -27,7 +28,7 @@ public class TcpServer {
             new ThreadPoolExecutor.AbortPolicy()
         );
 
-        try (ServerSocket server = new ServerSocket(port)) {
+        try (ServerSocket server = TlsSupport.listen(port))  {
 
             System.out.println("SyncShare Receiver Started!");
             System.out.println("Listening on port: " + port);
@@ -52,6 +53,7 @@ public class TcpServer {
                                 client.getInetAddress()
                             );
 
+                            client.setSoTimeout(180_000);
                             FileReceiver.receive(client);
 
                         } catch (Exception e) {
