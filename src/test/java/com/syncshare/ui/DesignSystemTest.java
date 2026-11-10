@@ -1,5 +1,11 @@
 package com.syncshare.ui;
 
+import com.syncshare.model.NavItemId;
+import com.syncshare.model.TransferDirection;
+import com.syncshare.model.TransferItem;
+import com.syncshare.model.TransferStatus;
+import com.syncshare.ui.controller.ActiveTransfersController;
+import com.syncshare.ui.controller.TransferHistoryController;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.FeedbackBanner;
 import com.syncshare.ui.design.LabeledProgressBar;
@@ -104,8 +110,8 @@ class DesignSystemTest {
             cssLogger.addHandler(handler);
 
             Stage stage = new Stage();
+            SyncShareApplication app = new SyncShareApplication();
             try {
-                SyncShareApplication app = new SyncShareApplication();
                 app.init();
                 app.initializeStage(stage);
                 Platform.setImplicitExit(false);
@@ -121,23 +127,26 @@ class DesignSystemTest {
                 root.layout();
 
                 MainController controller = app.getMainController();
-                assertTrue(controller.isOverviewVisible());
-                assertFalse(controller.isDesignSystemVisible());
+                assertNotNull(controller.getActiveDestination());
+                assertEquals(NavItemId.DASHBOARD, controller.getActiveDestination().id());
                 assertNoInlineStyles(root);
 
-                // Switch to Design System view and force full CSS + layout pass
-                controller.showDesignSystemView();
-                root.applyCss();
-                root.layout();
-
-                assertFalse(controller.isOverviewVisible());
-                assertTrue(controller.isDesignSystemVisible());
-                assertNoInlineStyles(root);
+                // Traverse all 6 navigation destinations and verify CSS + inline-style rules
+                for (NavItemId id : NavItemId.values()) {
+                    assertTrue(
+                        controller.navigateTo(id).success(),
+                        "Navigation should succeed for " + id
+                    );
+                    root.applyCss();
+                    root.layout();
+                    assertEquals(id, controller.getActiveDestination().id());
+                    assertNoInlineStyles(root);
+                }
 
                 assertTrue(cssWarnings.isEmpty(), "Unexpected JavaFX CSS warnings: " + cssWarnings);
             } finally {
                 cssLogger.removeHandler(handler);
-                stage.close();
+                controllerCloseStage(stage, app);
             }
         });
     }
@@ -245,8 +254,8 @@ class DesignSystemTest {
     void layoutResizesCleanlyAcrossDesktopBreakpoints() throws Throwable {
         JavaFxToolkitExtension.runOnFxThread(() -> {
             Stage stage = new Stage();
+            SyncShareApplication app = new SyncShareApplication();
             try {
-                SyncShareApplication app = new SyncShareApplication();
                 app.init();
                 app.initializeStage(stage);
                 Platform.setImplicitExit(false);
@@ -261,56 +270,125 @@ class DesignSystemTest {
                     {1440, 900}
                 };
 
+                // Seed sample active and history items so TableView rows and summaries render at every breakpoint
+                controller.getServices().transferService().upsertActiveTransfer(new TransferItem(
+                    "sample-active-1",
+                    "design-assets-v2.zip",
+                    210_000_000L,
+                    142_800_000L,
+                    TransferDirection.OUTGOING,
+                    TransferStatus.TRANSFERRING,
+                    "192.168.1.42:5050",
+                    "SHA-256 active",
+                    java.time.Instant.now(),
+                    "Streaming"
+                ));
+                controller.getServices().transferService().moveToHistory(new TransferItem(
+                    "sample-history-1",
+                    "architecture-spec.pdf",
+                    14_200_000L,
+                    14_200_000L,
+                    TransferDirection.INCOMING,
+                    TransferStatus.COMPLETED,
+                    "192.168.1.18:5050",
+                    "Verified",
+                    java.time.Instant.now(),
+                    "Completed"
+                ));
+
                 for (double[] dims : sizes) {
                     double width = dims[0];
                     double height = dims[1];
 
                     stage.setWidth(width);
                     stage.setHeight(height);
-                    root.applyCss();
-                    root.layout();
 
-                    double sceneWidth = scene.getWidth();
-                    double sceneHeight = scene.getHeight();
-                    assertTrue(sceneWidth > 0 && sceneHeight > 0);
+                    for (NavItemId id : NavItemId.values()) {
+                        assertTrue(controller.navigateTo(id).success());
+                        root.applyCss();
+                        root.layout();
 
-                    TableView<MainController.TransferPreviewRow> table = controller.getTransferTable();
-                    assertNotNull(table);
-                    assertTrue(table.getWidth() > 300, "Table should retain usable width at " + width + "x" + height);
-                    assertTrue(table.getHeight() >= 180);
+                        double sceneWidth = scene.getWidth();
+                        double sceneHeight = scene.getHeight();
+                        assertTrue(sceneWidth > 0 && sceneHeight > 0);
 
-                    Bounds tableBounds = table.localToScene(table.getBoundsInLocal());
-                    assertTrue(
-                        tableBounds.getMaxX() <= sceneWidth + 2.0,
-                        "Table overflows scene horizontally at " + width + "x" + height
-                    );
+                        Bounds headerPillBounds = controller.getConnectionStatusPill()
+                            .localToScene(controller.getConnectionStatusPill().getBoundsInLocal());
+                        assertTrue(
+                            headerPillBounds.getMaxX() <= sceneWidth + 2.0,
+                            "Connection status pill overflows header at " + width + "x" + height
+                        );
 
-                    double totalColumnWidth = table.getColumns().stream()
-                        .mapToDouble(TableColumn::getWidth)
-                        .sum();
-                    assertTrue(
-                        totalColumnWidth <= table.getWidth() + 4.0,
-                        "Table columns overflow table width (" + totalColumnWidth + " > " + table.getWidth() + ")"
-                    );
-
-                    // Verify Design System view also resizes cleanly
-                    controller.showDesignSystemView();
-                    root.applyCss();
-                    root.layout();
-                    assertTrue(controller.isDesignSystemVisible());
-                    controller.showOverviewView();
+                        if (id == NavItemId.ACTIVE_TRANSFERS) {
+                            ActiveTransfersController activeController = (ActiveTransfersController)
+                                controller.getViewNavigator().getCachedScreen(NavItemId.ACTIVE_TRANSFERS).controller();
+                            assertTableFitsScene(activeController.getActiveTable(), sceneWidth, width, height);
+                        } else if (id == NavItemId.TRANSFER_HISTORY) {
+                            TransferHistoryController historyController = (TransferHistoryController)
+                                controller.getViewNavigator().getCachedScreen(NavItemId.TRANSFER_HISTORY).controller();
+                            assertTableFitsScene(historyController.getHistoryTable(), sceneWidth, width, height);
+                        }
+                    }
                 }
 
-                // Verify table filtering and navigation state
-                assertEquals(4, controller.getTransferTable().getItems().size());
-                controller.getSearchField().setText("architecture");
-                assertEquals(1, controller.getTransferTable().getItems().size());
-                controller.getSearchField().clear();
-                assertEquals(4, controller.getTransferTable().getItems().size());
+                // Verify filtering in Active Transfers and Transfer History views
+                controller.navigateTo(NavItemId.ACTIVE_TRANSFERS);
+                ActiveTransfersController activeCtrl = (ActiveTransfersController)
+                    controller.getViewNavigator().getCachedScreen(NavItemId.ACTIVE_TRANSFERS).controller();
+                assertEquals(1, activeCtrl.getActiveTable().getItems().size());
+                activeCtrl.getSearchField().setText("nonexistent-match");
+                assertEquals(0, activeCtrl.getActiveTable().getItems().size());
+                activeCtrl.getSearchField().clear();
+                assertEquals(1, activeCtrl.getActiveTable().getItems().size());
+
+                controller.navigateTo(NavItemId.TRANSFER_HISTORY);
+                TransferHistoryController historyCtrl = (TransferHistoryController)
+                    controller.getViewNavigator().getCachedScreen(NavItemId.TRANSFER_HISTORY).controller();
+                assertEquals(1, historyCtrl.getHistoryTable().getItems().size());
+                historyCtrl.getSearchField().setText("architecture");
+                assertEquals(1, historyCtrl.getHistoryTable().getItems().size());
+                historyCtrl.getSearchField().setText("nothing");
+                assertEquals(0, historyCtrl.getHistoryTable().getItems().size());
+                historyCtrl.getSearchField().clear();
             } finally {
-                stage.close();
+                controllerCloseStage(stage, app);
             }
         });
+    }
+
+    private static void controllerCloseStage(Stage stage, SyncShareApplication app) {
+        try {
+            if (app != null) {
+                app.stop();
+            }
+        } finally {
+            stage.close();
+        }
+    }
+
+    private static void assertTableFitsScene(
+        TableView<?> table,
+        double sceneWidth,
+        double stageWidth,
+        double stageHeight
+    ) {
+        assertNotNull(table);
+        assertTrue(table.getWidth() > 300, "Table should retain usable width at " + stageWidth + "x" + stageHeight);
+        assertTrue(table.getHeight() >= 180);
+
+        Bounds tableBounds = table.localToScene(table.getBoundsInLocal());
+        assertTrue(
+            tableBounds.getMaxX() <= sceneWidth + 2.0,
+            "Table overflows scene horizontally at " + stageWidth + "x" + stageHeight
+        );
+
+        double totalColumnWidth = table.getColumns().stream()
+            .mapToDouble(TableColumn::getWidth)
+            .sum();
+        assertTrue(
+            totalColumnWidth <= table.getWidth() + 4.0,
+            "Table columns overflow table width (" + totalColumnWidth + " > " + table.getWidth() + ")"
+        );
     }
 
     private static void assertNoInlineStyles(Node node) {

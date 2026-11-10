@@ -1,5 +1,6 @@
 package com.syncshare.ui;
 
+import com.syncshare.service.SyncShareServices;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.UiDialogs;
 import javafx.application.Application;
@@ -18,8 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SyncShareApplication extends Application {
 
     public static final String APP_TITLE = "SyncShare";
-    public static final double INITIAL_WIDTH = 960;
-    public static final double INITIAL_HEIGHT = 640;
+    public static final double INITIAL_WIDTH = 1080;
+    public static final double INITIAL_HEIGHT = 720;
     public static final double MIN_WIDTH = 800;
     public static final double MIN_HEIGHT = 560;
 
@@ -73,11 +74,26 @@ public class SyncShareApplication extends Application {
     }
 
     public static LoadedView loadMainView() throws IOException {
+        return loadMainView(SyncShareServices.createDefault());
+    }
+
+    public static LoadedView loadMainView(SyncShareServices services) throws IOException {
+        Objects.requireNonNull(services, "services");
         URL fxmlUrl = requireResource(MAIN_VIEW_RESOURCE);
         requireResource(STYLESHEET_RESOURCE);
         DesignSystem.verifyStylesheetsAvailable();
 
         FXMLLoader loader = new FXMLLoader(fxmlUrl);
+        loader.setControllerFactory(type -> {
+            if (type == MainController.class) {
+                return new MainController(services);
+            }
+            try {
+                return type.getDeclaredConstructor().newInstance();
+            } catch (Exception error) {
+                throw new IllegalStateException("Unable to instantiate controller: " + type.getName(), error);
+            }
+        });
         Parent root = loader.load();
         MainController controller = loader.getController();
 

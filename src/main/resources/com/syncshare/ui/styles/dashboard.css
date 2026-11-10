@@ -1,0 +1,193 @@
+/* ==========================================================================
+ * SyncShare Design System — Dashboard, Empty States & Workspace Surfaces
+ * ========================================================================== */
+
+.app-view-host {
+    -fx-background-color: -ss-surface-canvas;
+}
+
+.view-container {
+    -fx-background-color: -ss-surface-canvas;
+    -fx-padding: 24px;
+    -fx-spacing: 20px;
+}
+
+/* Header Connection Status Indicator Pill */
+.connection-pill {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 999px;
+    -fx-border-radius: 999px;
+    -fx-padding: 5px 12px;
+    -fx-spacing: 8px;
+    -fx-alignment: center-left;
+}
+
+.connection-pill-label {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.connection-pill-detail {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -ss-text-muted;
+}
+
+.connection-pill-success {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-border;
+}
+.connection-pill-success .connection-pill-label { -fx-text-fill: -ss-success-800; }
+
+.connection-pill-teal {
+    -fx-background-color: -ss-teal-50;
+    -fx-border-color: -ss-teal-200;
+}
+.connection-pill-teal .connection-pill-label { -fx-text-fill: -ss-teal-800; }
+
+.connection-pill-info {
+    -fx-background-color: -ss-info-50;
+    -fx-border-color: -ss-info-border;
+}
+.connection-pill-info .connection-pill-label { -fx-text-fill: -ss-info-800; }
+
+.connection-pill-warning {
+    -fx-background-color: -ss-warning-50;
+    -fx-border-color: -ss-warning-border;
+}
+.connection-pill-warning .connection-pill-label { -fx-text-fill: -ss-warning-800; }
+
+.connection-pill-error {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-border;
+}
+.connection-pill-error .connection-pill-label { -fx-text-fill: -ss-error-800; }
+
+/* Empty State Component */
+.empty-state {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-style: dashed;
+    -fx-border-width: 1px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-padding: 28px 20px;
+    -fx-spacing: 10px;
+    -fx-alignment: center;
+}
+
+.empty-state-compact {
+    -fx-padding: 20px 16px;
+    -fx-spacing: 8px;
+}
+
+.empty-state-icon-wrap {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 999px;
+    -fx-border-radius: 999px;
+    -fx-min-width: 44px;
+    -fx-min-height: 44px;
+    -fx-pref-width: 44px;
+    -fx-pref-height: 44px;
+    -fx-alignment: center;
+}
+
+.empty-state-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+    -fx-text-alignment: center;
+}
+
+.empty-state-description {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -ss-text-muted;
+    -fx-text-alignment: center;
+}
+
+.empty-state-actions {
+    -fx-padding: 6px 0 0 0;
+    -fx-alignment: center;
+}
+
+/* Device Information Grid */
+.device-info-item {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 10px 12px;
+    -fx-spacing: 4px;
+}
+
+.device-info-key {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-muted;
+}
+
+.device-info-value {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.device-info-mono {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-navy-900;
+}
+
+/* Transfer Summary Rows (Dashboard Active & Recent Summaries) */
+.transfer-summary-row {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-padding: 10px 12px;
+    -fx-spacing: 8px;
+}
+
+.transfer-summary-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.transfer-summary-meta {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -ss-text-muted;
+}
+
+/* Quick Action Surface */
+.quick-actions-flow {
+    -fx-padding: 2px 0 0 0;
+}
+
+/* Inline Toolbar Spacing */
+.view-toolbar {
+    -fx-spacing: 10px;
+    -fx-alignment: center-left;
+}
+
+.form-row {
+    -fx-spacing: 10px;
+    -fx-alignment: bottom-left;
+}
+
+.section-actions {
+    -fx-spacing: 8px;
+    -fx-alignment: center-right;
+}
+
+.error-fallback-host {
+    -fx-padding: 24px;
+    -fx-spacing: 16px;
+}

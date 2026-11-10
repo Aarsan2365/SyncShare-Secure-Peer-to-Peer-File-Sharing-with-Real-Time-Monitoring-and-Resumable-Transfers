@@ -30,6 +30,7 @@ public final class DesignSystem {
     public static final String TABLE_STYLESHEET = "/com/syncshare/ui/styles/table.css";
     public static final String DIALOGS_STYLESHEET = "/com/syncshare/ui/styles/dialogs.css";
     public static final String FEEDBACK_STYLESHEET = "/com/syncshare/ui/styles/feedback.css";
+    public static final String DASHBOARD_STYLESHEET = "/com/syncshare/ui/styles/dashboard.css";
 
     public static final List<String> ALL_STYLESHEETS = List.of(
         MASTER_STYLESHEET,
@@ -43,7 +44,8 @@ public final class DesignSystem {
         NAVIGATION_STYLESHEET,
         TABLE_STYLESHEET,
         DIALOGS_STYLESHEET,
-        FEEDBACK_STYLESHEET
+        FEEDBACK_STYLESHEET,
+        DASHBOARD_STYLESHEET
     );
 
     // Spacing tokens (4px base grid)

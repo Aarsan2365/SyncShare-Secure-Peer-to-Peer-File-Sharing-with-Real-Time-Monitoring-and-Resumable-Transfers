@@ -97,6 +97,23 @@
     -fx-fill: -ss-teal-400;
 }
 
+.nav-row {
+    -fx-alignment: center-left;
+}
+
+.nav-badge {
+    -fx-background-color: -ss-teal-600;
+    -fx-background-radius: 999px;
+    -fx-padding: 1px 7px;
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.nav-badge-holder {
+    -fx-padding: 0 10px 0 0;
+}
+
 .sidebar-footer {
     -fx-background-color: -ss-navy-850;
     -fx-background-radius: 10px;
