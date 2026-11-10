@@ -1,0 +1,211 @@
+/* ==========================================================================
+ * SyncShare Design System — Text Fields & Form Input Styles
+ * ========================================================================== */
+
+.field-group {
+    -fx-spacing: 6px;
+}
+
+.field-label {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.field-hint {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -ss-text-muted;
+}
+
+.field-feedback-info    { -fx-font-size: 11.5px; -fx-text-fill: -ss-info-700; }
+.field-feedback-success { -fx-font-size: 11.5px; -fx-text-fill: -ss-success-700; }
+.field-feedback-warning { -fx-font-size: 11.5px; -fx-text-fill: -ss-warning-700; }
+.field-feedback-error   { -fx-font-size: 11.5px; -fx-text-fill: -ss-error-700; }
+
+/* Base Text Input (TextField, PasswordField, TextArea) */
+.input-field {
+    -fx-background-color: -ss-surface-card;
+    -fx-background-insets: 0;
+    -fx-background-radius: 8px;
+    -fx-border-color: -ss-border-default;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 8px;
+    -fx-padding: 8px 12px;
+    -fx-font-size: 13px;
+    -fx-text-fill: -ss-text-primary;
+    -fx-prompt-text-fill: -ss-text-disabled;
+    -fx-highlight-fill: -ss-teal-100;
+    -fx-highlight-text-fill: -ss-navy-900;
+}
+
+.input-field:hover {
+    -fx-border-color: -ss-border-strong;
+}
+
+.input-field:focused {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-teal-600;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.22), 7, 0.35, 0, 0);
+}
+
+.input-field:disabled {
+    -fx-background-color: -ss-surface-hover;
+    -fx-border-color: -ss-border-subtle;
+    -fx-text-fill: -ss-text-muted;
+    -fx-opacity: 0.85;
+}
+
+/* Search Input Variant */
+.search-field {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-background-radius: 8px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 8px;
+    -fx-padding: 7px 12px;
+}
+
+.search-field:focused {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-teal-600;
+}
+
+/* TextArea specific inner scroll cleanup */
+.text-area.input-field {
+    -fx-padding: 4px 6px;
+}
+
+.text-area.input-field .content {
+    -fx-background-color: transparent;
+    -fx-padding: 6px;
+}
+
+/* Validation Input States */
+.input-error {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-600;
+}
+
+.input-error:hover {
+    -fx-border-color: -ss-error-700;
+}
+
+.input-error:focused {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-error-600;
+    -fx-effect: dropshadow(gaussian, rgba(220, 38, 38, 0.25), 7, 0.35, 0, 0);
+}
+
+.input-warning {
+    -fx-background-color: -ss-warning-50;
+    -fx-border-color: -ss-warning-600;
+}
+
+.input-warning:focused {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-warning-600;
+    -fx-effect: dropshadow(gaussian, rgba(217, 119, 6, 0.24), 7, 0.35, 0, 0);
+}
+
+.input-success {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-600;
+}
+
+.input-success:focused {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-success-600;
+    -fx-effect: dropshadow(gaussian, rgba(22, 163, 74, 0.22), 7, 0.35, 0, 0);
+}
+
+/* ComboBox Styling */
+.combo-input {
+    -fx-background-color: -ss-surface-card;
+    -fx-background-insets: 0;
+    -fx-background-radius: 8px;
+    -fx-border-color: -ss-border-default;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 8px;
+    -fx-padding: 3px 8px;
+    -fx-font-size: 13px;
+}
+
+.combo-input:hover {
+    -fx-border-color: -ss-border-strong;
+}
+
+.combo-input:focused {
+    -fx-border-color: -ss-teal-600;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.22), 7, 0.35, 0, 0);
+}
+
+.combo-input > .list-cell {
+    -fx-text-fill: -ss-text-primary;
+    -fx-background-color: transparent;
+    -fx-padding: 4px 6px;
+}
+
+.combo-input .arrow-button {
+    -fx-background-color: transparent;
+}
+
+.combo-input .arrow {
+    -fx-background-color: -ss-text-secondary;
+}
+
+.combo-box-popup > .list-view {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.12), 16, 0.15, 0, 4);
+}
+
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell {
+    -fx-padding: 8px 12px;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:hover {
+    -fx-background-color: -ss-surface-hover;
+}
+
+.combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:selected {
+    -fx-background-color: -ss-teal-50;
+    -fx-text-fill: -ss-teal-800;
+}
+
+/* CheckBox Styling */
+.ss-checkbox {
+    -fx-text-fill: -ss-text-primary;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+
+.ss-checkbox > .box {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-default;
+    -fx-border-width: 1.5px;
+    -fx-border-radius: 5px;
+    -fx-background-radius: 5px;
+    -fx-padding: 3px;
+}
+
+.ss-checkbox:hover > .box {
+    -fx-border-color: -ss-teal-600;
+}
+
+.ss-checkbox:selected > .box {
+    -fx-background-color: -ss-teal-600;
+    -fx-border-color: -ss-teal-600;
+}
+
+.ss-checkbox:selected > .box > .mark {
+    -fx-background-color: -ss-text-inverse;
+}
+
+.ss-checkbox:focus-visible > .box {
+    -fx-border-color: -ss-teal-600;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.35), 6, 0.45, 0, 0);
+}

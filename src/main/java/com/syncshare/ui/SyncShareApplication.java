@@ -1,5 +1,7 @@
 package com.syncshare.ui;
 
+import com.syncshare.ui.design.DesignSystem;
+import com.syncshare.ui.design.UiDialogs;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
@@ -22,7 +24,7 @@ public class SyncShareApplication extends Application {
     public static final double MIN_HEIGHT = 560;
 
     public static final String MAIN_VIEW_RESOURCE = "/com/syncshare/ui/main-view.fxml";
-    public static final String STYLESHEET_RESOURCE = "/com/syncshare/ui/styles.css";
+    public static final String STYLESHEET_RESOURCE = DesignSystem.MASTER_STYLESHEET;
 
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
     private MainController mainController;
@@ -34,6 +36,7 @@ public class SyncShareApplication extends Application {
     public void init() {
         requireResource(MAIN_VIEW_RESOURCE);
         requireResource(STYLESHEET_RESOURCE);
+        DesignSystem.verifyStylesheetsAvailable();
     }
 
     @Override
@@ -71,14 +74,15 @@ public class SyncShareApplication extends Application {
 
     public static LoadedView loadMainView() throws IOException {
         URL fxmlUrl = requireResource(MAIN_VIEW_RESOURCE);
-        URL stylesheetUrl = requireResource(STYLESHEET_RESOURCE);
+        requireResource(STYLESHEET_RESOURCE);
+        DesignSystem.verifyStylesheetsAvailable();
 
         FXMLLoader loader = new FXMLLoader(fxmlUrl);
         Parent root = loader.load();
         MainController controller = loader.getController();
 
         Scene scene = new Scene(root, INITIAL_WIDTH, INITIAL_HEIGHT);
-        scene.getStylesheets().add(stylesheetUrl.toExternalForm());
+        DesignSystem.applyTheme(scene);
 
         return new LoadedView(root, controller, scene);
     }
@@ -126,10 +130,12 @@ public class SyncShareApplication extends Application {
 
         if (!Boolean.getBoolean("syncshare.ui.suppressDialogs")) {
             try {
-                Alert alert = new Alert(Alert.AlertType.ERROR);
-                alert.setTitle(APP_TITLE + " Startup Error");
-                alert.setHeaderText("Unable to initialize the application window.");
-                alert.setContentText(message);
+                Alert alert = UiDialogs.error(
+                    null,
+                    APP_TITLE + " Startup Error",
+                    "Unable to initialize the application window.",
+                    message
+                );
                 alert.showAndWait();
             } catch (Throwable dialogError) {
                 System.err.println(

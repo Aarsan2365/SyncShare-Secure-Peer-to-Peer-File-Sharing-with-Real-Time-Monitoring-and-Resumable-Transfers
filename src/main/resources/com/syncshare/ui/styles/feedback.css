@@ -1,0 +1,117 @@
+/* ==========================================================================
+ * SyncShare Design System — Error, Warning, Success, Info & Shell Utilities
+ * ========================================================================== */
+
+/* Alert / Feedback Banners */
+.alert-banner {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-default;
+    -fx-border-width: 1px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-padding: 12px 16px;
+    -fx-spacing: 12px;
+    -fx-alignment: center-left;
+}
+
+.alert-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.alert-message {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.alert-info {
+    -fx-background-color: -ss-info-50;
+    -fx-border-color: -ss-info-border;
+}
+.alert-info .alert-title   { -fx-text-fill: -ss-info-800; }
+.alert-info .alert-message { -fx-text-fill: -ss-info-700; }
+.alert-info .ui-icon-svg   { -fx-fill: -ss-info-600; }
+
+.alert-success {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-border;
+}
+.alert-success .alert-title   { -fx-text-fill: -ss-success-800; }
+.alert-success .alert-message { -fx-text-fill: -ss-success-700; }
+.alert-success .ui-icon-svg   { -fx-fill: -ss-success-600; }
+
+.alert-warning {
+    -fx-background-color: -ss-warning-50;
+    -fx-border-color: -ss-warning-border;
+}
+.alert-warning .alert-title   { -fx-text-fill: -ss-warning-800; }
+.alert-warning .alert-message { -fx-text-fill: -ss-warning-700; }
+.alert-warning .ui-icon-svg   { -fx-fill: -ss-warning-600; }
+
+.alert-error {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-border;
+}
+.alert-error .alert-title   { -fx-text-fill: -ss-error-800; }
+.alert-error .alert-message { -fx-text-fill: -ss-error-700; }
+.alert-error .ui-icon-svg   { -fx-fill: -ss-error-600; }
+
+/* Workspace Scroll Container & Modern Thin ScrollBars */
+.app-scroll {
+    -fx-background-color: -ss-surface-canvas;
+    -fx-background: -ss-surface-canvas;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+}
+
+.app-scroll > .viewport {
+    -fx-background-color: -ss-surface-canvas;
+}
+
+.scroll-bar:vertical,
+.scroll-bar:horizontal {
+    -fx-background-color: transparent;
+    -fx-padding: 2px;
+}
+
+.scroll-bar:vertical > .track,
+.scroll-bar:horizontal > .track {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.scroll-bar:vertical > .thumb,
+.scroll-bar:horizontal > .thumb {
+    -fx-background-color: -ss-border-default;
+    -fx-background-radius: 999px;
+}
+
+.scroll-bar:vertical > .thumb:hover,
+.scroll-bar:horizontal > .thumb:hover {
+    -fx-background-color: -ss-border-strong;
+}
+
+.scroll-bar > .increment-button,
+.scroll-bar > .decrement-button {
+    -fx-padding: 0;
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+    -fx-opacity: 0;
+}
+
+/* Separators */
+.ss-separator > .line {
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px 0 0 0;
+}
+
+/* Tooltips */
+.tooltip {
+    -fx-background-color: -ss-navy-900;
+    -fx-text-fill: -ss-text-inverse;
+    -fx-font-size: 12px;
+    -fx-padding: 6px 10px;
+    -fx-background-radius: 6px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.25), 10, 0.15, 0, 3);
+}

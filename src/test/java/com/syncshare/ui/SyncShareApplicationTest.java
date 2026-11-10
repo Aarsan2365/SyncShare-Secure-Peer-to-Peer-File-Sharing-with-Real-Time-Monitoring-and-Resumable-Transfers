@@ -2,16 +2,11 @@ package com.syncshare.ui;
 
 import javafx.application.Platform;
 import javafx.stage.Stage;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.lang.reflect.Method;
 import java.net.URL;
-import java.nio.file.Path;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,31 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@ExtendWith(JavaFxToolkitExtension.class)
 class SyncShareApplicationTest {
-
-    @BeforeAll
-    static void startJavaFxToolkit() throws Exception {
-        System.setProperty("syncshare.ui.suppressDialogs", "true");
-        System.setProperty(
-            "javafx.cachedir",
-            Path.of("target", "javafx-cache").toAbsolutePath().toString()
-        );
-
-        CountDownLatch started = new CountDownLatch(1);
-        try {
-            Platform.startup(started::countDown);
-        } catch (IllegalStateException alreadyStarted) {
-            Platform.runLater(started::countDown);
-        }
-
-        assertTrue(started.await(15, TimeUnit.SECONDS), "JavaFX toolkit failed to start");
-        Platform.setImplicitExit(false);
-    }
-
-    @AfterAll
-    static void stopJavaFxToolkit() {
-        Platform.exit();
-    }
 
     @Test
     void requiredResourcesResolve() {
@@ -74,7 +46,7 @@ class SyncShareApplicationTest {
 
     @Test
     void applicationInitializesStageAndShutsDownGracefully() throws Throwable {
-        runOnFxThread(() -> {
+        JavaFxToolkitExtension.runOnFxThread(() -> {
             SyncShareApplication app = new SyncShareApplication();
             app.init();
 
@@ -107,30 +79,5 @@ class SyncShareApplicationTest {
                 stage.close();
             }
         });
-    }
-
-    @FunctionalInterface
-    private interface FxAction {
-        void run() throws Exception;
-    }
-
-    private static void runOnFxThread(FxAction action) throws Throwable {
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        Platform.runLater(() -> {
-            try {
-                action.run();
-            } catch (Throwable error) {
-                failure.set(error);
-            } finally {
-                latch.countDown();
-            }
-        });
-
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "Timed out waiting for JavaFX task");
-        if (failure.get() != null) {
-            throw failure.get();
-        }
     }
 }

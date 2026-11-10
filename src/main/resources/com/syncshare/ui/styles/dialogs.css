@@ -1,0 +1,83 @@
+/* ==========================================================================
+ * SyncShare Design System — Dialog & Modal Styles
+ * ========================================================================== */
+
+.ss-dialog {
+    -fx-background-color: -ss-surface-card;
+    -fx-padding: 0;
+}
+
+.ss-dialog > .header-panel {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 18px 22px;
+}
+
+.ss-dialog > .header-panel .label {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-navy-900;
+}
+
+.ss-dialog > .content,
+.ss-dialog > .content.label {
+    -fx-background-color: -ss-surface-card;
+    -fx-padding: 20px 22px;
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.ss-dialog > .button-bar {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 12px 22px;
+}
+
+/* Semantic Dialog Header Variants */
+.dialog-info > .header-panel {
+    -fx-background-color: -ss-info-50;
+    -fx-border-color: -ss-info-border;
+}
+.dialog-info > .header-panel .label {
+    -fx-text-fill: -ss-info-800;
+}
+
+.dialog-success > .header-panel {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-border;
+}
+.dialog-success > .header-panel .label {
+    -fx-text-fill: -ss-success-800;
+}
+
+.dialog-warning > .header-panel {
+    -fx-background-color: -ss-warning-50;
+    -fx-border-color: -ss-warning-border;
+}
+.dialog-warning > .header-panel .label {
+    -fx-text-fill: -ss-warning-800;
+}
+
+.dialog-error > .header-panel {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-border;
+}
+.dialog-error > .header-panel .label {
+    -fx-text-fill: -ss-error-800;
+}
+
+.dialog-teal > .header-panel {
+    -fx-background-color: -ss-teal-50;
+    -fx-border-color: -ss-teal-200;
+}
+.dialog-teal > .header-panel .label {
+    -fx-text-fill: -ss-teal-900;
+}
+
+.dialog-header-subtitle {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: normal;
+    -fx-text-fill: -ss-text-secondary;
+}
