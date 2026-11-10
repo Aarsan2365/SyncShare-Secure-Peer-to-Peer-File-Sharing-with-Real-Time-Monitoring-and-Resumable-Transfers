@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane xmlns="http://javafx.com/javafx/21"
+            xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.syncshare.ui.MainController"
+            styleClass="app-root">
+
+    <top>
+        <VBox styleClass="app-header" spacing="4">
+            <padding>
+                <Insets top="20" right="24" bottom="16" left="24"/>
+            </padding>
+            <Label text="SyncShare" styleClass="app-title"/>
+            <Label text="Secure Peer-to-Peer File Sharing" styleClass="app-subtitle"/>
+        </VBox>
+    </top>
+
+    <center>
+        <VBox alignment="CENTER" styleClass="app-content">
+            <padding>
+                <Insets top="24" right="24" bottom="24" left="24"/>
+            </padding>
+            <VBox styleClass="status-card" spacing="10" maxWidth="520">
+                <padding>
+                    <Insets top="24" right="28" bottom="24" left="28"/>
+                </padding>
+                <Label text="Application Foundation Ready" styleClass="card-title"/>
+                <Label text="JavaFX lifecycle, main window, and resource loading are initialized. Ready to integrate peer discovery, file transfer controls, and approval workflows."
+                       wrapText="true"
+                       styleClass="card-body"/>
+                <Label fx:id="runtimeInfoLabel" styleClass="runtime-info"/>
+            </VBox>
+        </VBox>
+    </center>
+
+    <bottom>
+        <HBox styleClass="status-bar" alignment="CENTER_LEFT" spacing="12">
+            <padding>
+                <Insets top="10" right="24" bottom="10" left="24"/>
+            </padding>
+            <Label fx:id="statusLabel" text="Status: Ready" styleClass="status-text"/>
+        </HBox>
+    </bottom>
+
+</BorderPane>

@@ -14,6 +14,9 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>21</maven.compiler.release>
+    <javafx.version>21.0.6</javafx.version>
+    <javafx.maven.plugin.version>0.0.8</javafx.maven.plugin.version>
+    <javafx.mainClass>com.syncshare.ui.SyncShareApplication</javafx.mainClass>
   </properties>
 
   <dependencyManagement>
@@ -30,6 +33,16 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-controls</artifactId>
+      <version>${javafx.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-fxml</artifactId>
+      <version>${javafx.version}</version>
+    </dependency>
+    <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-api</artifactId>
       <scope>test</scope>
@@ -40,9 +53,19 @@
       <artifactId>junit-jupiter-params</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
+    <resources>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+    </resources>
     <pluginManagement><!-- lock down plugins versions to avoid using Maven defaults (may be moved to parent pom) -->
       <plugins>
         <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
@@ -84,7 +107,30 @@
           <artifactId>maven-project-info-reports-plugin</artifactId>
           <version>3.6.1</version>
         </plugin>
+        <plugin>
+          <groupId>org.openjfx</groupId>
+          <artifactId>javafx-maven-plugin</artifactId>
+          <version>${javafx.maven.plugin.version}</version>
+        </plugin>
       </plugins>
     </pluginManagement>
+    <plugins>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.openjfx</groupId>
+        <artifactId>javafx-maven-plugin</artifactId>
+        <configuration>
+          <mainClass>${javafx.mainClass}</mainClass>
+          <options>
+            <option>--enable-native-access=javafx.graphics</option>
+          </options>
+        </configuration>
+      </plugin>
+    </plugins>
   </build>
 </project>

@@ -1,0 +1,156 @@
+package com.syncshare.ui;
+
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.fxml.FXMLLoader;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.stage.Stage;
+
+import java.io.IOException;
+import java.net.URL;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+public class SyncShareApplication extends Application {
+
+    public static final String APP_TITLE = "SyncShare";
+    public static final double INITIAL_WIDTH = 960;
+    public static final double INITIAL_HEIGHT = 640;
+    public static final double MIN_WIDTH = 800;
+    public static final double MIN_HEIGHT = 560;
+
+    public static final String MAIN_VIEW_RESOURCE = "/com/syncshare/ui/main-view.fxml";
+    public static final String STYLESHEET_RESOURCE = "/com/syncshare/ui/styles.css";
+
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+    private MainController mainController;
+
+    public record LoadedView(Parent root, MainController controller, Scene scene) {
+    }
+
+    @Override
+    public void init() {
+        requireResource(MAIN_VIEW_RESOURCE);
+        requireResource(STYLESHEET_RESOURCE);
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        Thread.currentThread().setUncaughtExceptionHandler((thread, error) -> {
+            System.err.println(
+                "Uncaught JavaFX error on thread " + thread.getName() + ": " + error.getMessage()
+            );
+            error.printStackTrace(System.err);
+        });
+
+        try {
+            initializeStage(primaryStage);
+        } catch (Throwable error) {
+            handleStartupFailure(error);
+        }
+    }
+
+    public void initializeStage(Stage primaryStage) throws IOException {
+        Objects.requireNonNull(primaryStage, "primaryStage");
+
+        Platform.setImplicitExit(true);
+
+        LoadedView loadedView = loadMainView();
+        this.mainController = loadedView.controller();
+
+        primaryStage.setTitle(APP_TITLE);
+        primaryStage.setMinWidth(MIN_WIDTH);
+        primaryStage.setMinHeight(MIN_HEIGHT);
+        primaryStage.setScene(loadedView.scene());
+        primaryStage.setOnCloseRequest(event -> initiateShutdown());
+        primaryStage.centerOnScreen();
+        primaryStage.show();
+    }
+
+    public static LoadedView loadMainView() throws IOException {
+        URL fxmlUrl = requireResource(MAIN_VIEW_RESOURCE);
+        URL stylesheetUrl = requireResource(STYLESHEET_RESOURCE);
+
+        FXMLLoader loader = new FXMLLoader(fxmlUrl);
+        Parent root = loader.load();
+        MainController controller = loader.getController();
+
+        Scene scene = new Scene(root, INITIAL_WIDTH, INITIAL_HEIGHT);
+        scene.getStylesheets().add(stylesheetUrl.toExternalForm());
+
+        return new LoadedView(root, controller, scene);
+    }
+
+    public static URL requireResource(String resourcePath) {
+        Objects.requireNonNull(resourcePath, "resourcePath");
+        URL url = SyncShareApplication.class.getResource(resourcePath);
+        if (url == null) {
+            throw new IllegalStateException("Required UI resource not found: " + resourcePath);
+        }
+        return url;
+    }
+
+    public MainController getMainController() {
+        return mainController;
+    }
+
+    protected void initiateShutdown() {
+        Platform.exit();
+    }
+
+    @Override
+    public void stop() {
+        if (!shuttingDown.compareAndSet(false, true)) {
+            return;
+        }
+
+        if (mainController != null) {
+            try {
+                mainController.shutdown();
+            } catch (RuntimeException error) {
+                System.err.println("Error during UI shutdown: " + error.getMessage());
+                error.printStackTrace(System.err);
+            }
+        }
+    }
+
+    private void handleStartupFailure(Throwable error) {
+        String message = error.getMessage() != null && !error.getMessage().isBlank()
+            ? error.getMessage()
+            : error.getClass().getSimpleName();
+
+        System.err.println("Failed to start " + APP_TITLE + ": " + message);
+        error.printStackTrace(System.err);
+
+        if (!Boolean.getBoolean("syncshare.ui.suppressDialogs")) {
+            try {
+                Alert alert = new Alert(Alert.AlertType.ERROR);
+                alert.setTitle(APP_TITLE + " Startup Error");
+                alert.setHeaderText("Unable to initialize the application window.");
+                alert.setContentText(message);
+                alert.showAndWait();
+            } catch (Throwable dialogError) {
+                System.err.println(
+                    "Unable to display startup error dialog: " + dialogError.getMessage()
+                );
+            }
+        }
+
+        Platform.exit();
+    }
+
+    public static void main(String[] args) {
+        try {
+            launch(args);
+        } catch (Throwable error) {
+            String message = error.getMessage() != null && !error.getMessage().isBlank()
+                ? error.getMessage()
+                : error.getClass().getSimpleName();
+            System.err.println(APP_TITLE + " failed during JavaFX launch: " + message);
+            error.printStackTrace(System.err);
+            System.exit(1);
+        }
+    }
+}
