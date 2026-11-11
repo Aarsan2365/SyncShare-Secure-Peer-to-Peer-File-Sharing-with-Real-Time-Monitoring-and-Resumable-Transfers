@@ -1,0 +1,143 @@
+/* ==========================================================================
+ * SyncShare Design System — Centralized CSS Design Tokens
+ * Palette: Deep Navy + Teal Primary + White / Light-Grey Surfaces
+ * ========================================================================== */
+
+.root {
+    /* ----------------------------------------------------------------------
+     * 1. Deep Navy Brand & Dark Surface Scale
+     * ---------------------------------------------------------------------- */
+    -ss-navy-950: #0B1220;
+    -ss-navy-900: #0F172A;
+    -ss-navy-850: #162238;
+    -ss-navy-800: #1E293B;
+    -ss-navy-700: #334155;
+    -ss-navy-600: #475569;
+
+    /* ----------------------------------------------------------------------
+     * 2. Teal Primary Accent Scale
+     * ---------------------------------------------------------------------- */
+    -ss-teal-900: #134E4A;
+    -ss-teal-800: #115E59;
+    -ss-teal-700: #0F766E;
+    -ss-teal-600: #0D9488;
+    -ss-teal-500: #14B8A6;
+    -ss-teal-400: #2DD4BF;
+    -ss-teal-200: #99F6E4;
+    -ss-teal-100: #CCFBF1;
+    -ss-teal-50:  #F0FDFA;
+
+    /* ----------------------------------------------------------------------
+     * 3. White & Light-Grey Surface Hierarchy
+     * ---------------------------------------------------------------------- */
+    -ss-surface-canvas: #F4F7FA;
+    -ss-surface-subtle: #F8FAFC;
+    -ss-surface-card:   #FFFFFF;
+    -ss-surface-hover:  #F1F5F9;
+    -ss-surface-active: #E2E8F0;
+
+    /* ----------------------------------------------------------------------
+     * 4. Borders & Dividers
+     * ---------------------------------------------------------------------- */
+    -ss-border-subtle:  #E2E8F0;
+    -ss-border-default: #CBD5E1;
+    -ss-border-strong:  #94A3B8;
+    -ss-border-dark:    #243247;
+
+    /* ----------------------------------------------------------------------
+     * 5. Typography Ink Tokens
+     * ---------------------------------------------------------------------- */
+    -ss-text-primary:       #0F172A;
+    -ss-text-secondary:     #475569;
+    -ss-text-muted:         #64748B;
+    -ss-text-disabled:      #94A3B8;
+    -ss-text-inverse:       #F8FAFC;
+    -ss-text-inverse-muted: #94A3B8;
+
+    /* ----------------------------------------------------------------------
+     * 6. Semantic Status Tokens (Success, Warning, Error, Info)
+     * ---------------------------------------------------------------------- */
+    -ss-success-800:    #14532D;
+    -ss-success-700:    #15803D;
+    -ss-success-600:    #16A34A;
+    -ss-success-500:    #22C55E;
+    -ss-success-border: #BBF7D0;
+    -ss-success-100:    #DCFCE7;
+    -ss-success-50:     #F0FDF4;
+
+    -ss-warning-800:    #78350F;
+    -ss-warning-700:    #B45309;
+    -ss-warning-600:    #D97706;
+    -ss-warning-500:    #F59E0B;
+    -ss-warning-border: #FDE68A;
+    -ss-warning-100:    #FEF3C7;
+    -ss-warning-50:     #FFFBEB;
+
+    -ss-error-800:      #7F1D1D;
+    -ss-error-700:      #B91C1C;
+    -ss-error-600:      #DC2626;
+    -ss-error-500:      #EF4444;
+    -ss-error-border:   #FECACA;
+    -ss-error-100:      #FEE2E2;
+    -ss-error-50:       #FEF2F2;
+
+    -ss-info-800:       #0C4A6E;
+    -ss-info-700:       #0369A1;
+    -ss-info-600:       #0284C7;
+    -ss-info-500:       #0EA5E9;
+    -ss-info-border:    #BAE6FD;
+    -ss-info-100:       #E0F2FE;
+    -ss-info-50:        #F0F9FF;
+
+    /* ----------------------------------------------------------------------
+     * 7. Interaction & Focus Tokens
+     * ---------------------------------------------------------------------- */
+    -ss-nav-active-bg:   #15283B;
+    -ss-nav-hover-bg:    #162238;
+    -ss-focus-ring:      #0D9488;
+    -ss-focus-ring-dark: #2DD4BF;
+
+    /* ----------------------------------------------------------------------
+     * 8. JavaFX Modena Base Palette Overrides
+     * ---------------------------------------------------------------------- */
+    -fx-base: -ss-surface-card;
+    -fx-background: -ss-surface-canvas;
+    -fx-control-inner-background: -ss-surface-card;
+    -fx-accent: -ss-teal-600;
+    -fx-focus-color: -ss-teal-600;
+    -fx-faint-focus-color: rgba(13, 148, 136, 0.22);
+    -fx-selection-bar: -ss-teal-50;
+    -fx-selection-bar-non-focused: -ss-surface-hover;
+    -fx-text-background-color: -ss-text-primary;
+    -fx-font-family: "System";
+    -fx-font-size: 13px;
+}
+
+/* ==========================================================================
+ * Token Swatch Utility Classes (Used in Design System Showcase)
+ * ========================================================================== */
+
+.swatch-chip {
+    -fx-min-width: 36px;
+    -fx-min-height: 36px;
+    -fx-pref-width: 36px;
+    -fx-pref-height: 36px;
+    -fx-max-width: 36px;
+    -fx-max-height: 36px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+}
+
+.swatch-navy-900       { -fx-background-color: -ss-navy-900; }
+.swatch-navy-800       { -fx-background-color: -ss-navy-800; }
+.swatch-teal-700       { -fx-background-color: -ss-teal-700; }
+.swatch-teal-600       { -fx-background-color: -ss-teal-600; }
+.swatch-teal-400       { -fx-background-color: -ss-teal-400; }
+.swatch-surface-canvas { -fx-background-color: -ss-surface-canvas; }
+.swatch-surface-card   { -fx-background-color: -ss-surface-card; }
+.swatch-success        { -fx-background-color: -ss-success-600; }
+.swatch-warning        { -fx-background-color: -ss-warning-500; }
+.swatch-error          { -fx-background-color: -ss-error-600; }
+.swatch-info           { -fx-background-color: -ss-info-600; }

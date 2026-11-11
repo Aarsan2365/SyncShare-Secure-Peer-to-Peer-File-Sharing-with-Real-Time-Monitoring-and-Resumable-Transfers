@@ -1,0 +1,255 @@
+/* ==========================================================================
+ * SyncShare Design System — Navigation & Application Chrome
+ * ========================================================================== */
+
+/* Deep Navy Sidebar Navigation */
+.sidebar {
+    -fx-background-color: -ss-navy-900;
+    -fx-border-color: -ss-navy-800;
+    -fx-border-width: 0 1px 0 0;
+    -fx-padding: 18px 14px 16px 14px;
+}
+
+.sidebar-brand {
+    -fx-padding: 4px 8px 16px 8px;
+    -fx-border-color: -ss-border-dark;
+    -fx-border-width: 0 0 1px 0;
+    -fx-alignment: center-left;
+}
+
+.sidebar-brand-mark {
+    -fx-background-color: -ss-teal-600;
+    -fx-background-radius: 10px;
+    -fx-min-width: 36px;
+    -fx-min-height: 36px;
+    -fx-pref-width: 36px;
+    -fx-pref-height: 36px;
+    -fx-alignment: center;
+}
+
+.sidebar-brand-mark .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.sidebar-brand-title {
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.sidebar-brand-subtitle {
+    -fx-font-size: 11px;
+    -fx-text-fill: -ss-text-inverse-muted;
+}
+
+.sidebar-section-label {
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse-muted;
+    -fx-padding: 14px 10px 4px 10px;
+}
+
+.nav-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8px;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px 1px 1px 3px;
+    -fx-border-radius: 8px;
+    -fx-padding: 9px 12px;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse-muted;
+    -fx-alignment: center-left;
+    -fx-content-display: left;
+    -fx-graphic-text-gap: 10px;
+    -fx-cursor: hand;
+    -fx-max-width: Infinity;
+}
+
+.nav-item .ui-icon-svg {
+    -fx-fill: -ss-text-inverse-muted;
+}
+
+.nav-item:hover {
+    -fx-background-color: -ss-nav-hover-bg;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.nav-item:hover .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.nav-item:focus-visible {
+    -fx-border-color: -ss-focus-ring-dark;
+}
+
+.nav-item-active {
+    -fx-background-color: -ss-nav-active-bg;
+    -fx-border-color: transparent transparent transparent -ss-teal-400;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.nav-item-active:hover {
+    -fx-background-color: -ss-nav-active-bg;
+}
+
+.nav-item-active .ui-icon-svg {
+    -fx-fill: -ss-teal-400;
+}
+
+.nav-row {
+    -fx-alignment: center-left;
+}
+
+.nav-badge {
+    -fx-background-color: -ss-teal-600;
+    -fx-background-radius: 999px;
+    -fx-padding: 1px 7px;
+    -fx-font-size: 10.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.nav-badge-holder {
+    -fx-padding: 0 10px 0 0;
+}
+
+.sidebar-footer {
+    -fx-background-color: -ss-navy-850;
+    -fx-background-radius: 10px;
+    -fx-border-color: -ss-border-dark;
+    -fx-border-width: 1px;
+    -fx-border-radius: 10px;
+    -fx-padding: 12px;
+}
+
+.sidebar-footer-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.sidebar-footer-caption {
+    -fx-font-size: 11px;
+    -fx-text-fill: -ss-text-inverse-muted;
+}
+
+/* Top Application Bar */
+.app-topbar {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+    -fx-padding: 16px 24px;
+    -fx-alignment: center-left;
+}
+
+.page-header {
+    -fx-spacing: 2px;
+}
+
+/* Segmented Control / Horizontal Sub-Navigation */
+.segmented-bar {
+    -fx-background-color: -ss-surface-hover;
+    -fx-background-radius: 9px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-border-radius: 9px;
+    -fx-padding: 3px;
+    -fx-spacing: 3px;
+}
+
+.segmented-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6px;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+    -fx-border-radius: 6px;
+    -fx-padding: 6px 14px;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-secondary;
+    -fx-cursor: hand;
+}
+
+.segmented-item:hover {
+    -fx-text-fill: -ss-text-primary;
+}
+
+.segmented-item:focus-visible {
+    -fx-border-color: -ss-teal-600;
+}
+
+.segmented-item-active {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-subtle;
+    -fx-text-fill: -ss-teal-700;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.06), 6, 0.10, 0, 1);
+}
+
+/* Reusable TabPane Styling */
+.ss-tabs > .tab-header-area {
+    -fx-padding: 0;
+}
+
+.ss-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: transparent;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.ss-tabs > .tab-header-area > .headers-region > .tab {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0 0 2px 0;
+    -fx-padding: 8px 16px;
+    -fx-cursor: hand;
+}
+
+.ss-tabs > .tab-header-area > .headers-region > .tab > .tab-container > .tab-label {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.ss-tabs > .tab-header-area > .headers-region > .tab:hover > .tab-container > .tab-label {
+    -fx-text-fill: -ss-text-primary;
+}
+
+.ss-tabs > .tab-header-area > .headers-region > .tab:selected {
+    -fx-border-color: transparent transparent -ss-teal-600 transparent;
+}
+
+.ss-tabs > .tab-header-area > .headers-region > .tab:selected > .tab-container > .tab-label {
+    -fx-text-fill: -ss-teal-700;
+}
+
+.ss-tabs:focused > .tab-header-area > .headers-region > .tab:selected {
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.ss-tabs > .tab-content-area {
+    -fx-padding: 16px 0 0 0;
+    -fx-background-color: transparent;
+}
+
+/* Bottom Status Bar */
+.status-bar {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 8px 24px;
+    -fx-alignment: center-left;
+}
+
+.status-text {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-navy-700;
+}
+
+.runtime-info {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -ss-text-muted;
+}

@@ -1,0 +1,28 @@
+/* ==========================================================================
+ * SyncShare Master Stylesheet
+ * Entry point imported by SyncShareApplication and DesignSystem.
+ * ========================================================================== */
+
+@import "styles/tokens.css";
+@import "styles/typography.css";
+@import "styles/buttons.css";
+@import "styles/cards.css";
+@import "styles/forms.css";
+@import "styles/badges.css";
+@import "styles/progress.css";
+@import "styles/navigation.css";
+@import "styles/table.css";
+@import "styles/dialogs.css";
+@import "styles/feedback.css";
+@import "styles/dashboard.css";
+
+.app-root {
+    -fx-background-color: -ss-surface-canvas;
+    -fx-font-family: "System";
+}
+
+.app-content {
+    -fx-background-color: -ss-surface-canvas;
+    -fx-padding: 24px;
+    -fx-spacing: 20px;
+}

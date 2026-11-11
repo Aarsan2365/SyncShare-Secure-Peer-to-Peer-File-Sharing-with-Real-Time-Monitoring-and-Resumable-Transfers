@@ -1,0 +1,236 @@
+/* ==========================================================================
+ * SyncShare Design System — Reusable Button Styles
+ * ========================================================================== */
+
+.btn {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-default;
+    -fx-border-width: 1px;
+    -fx-background-radius: 8px;
+    -fx-border-radius: 8px;
+    -fx-background-insets: 0;
+    -fx-padding: 8px 16px;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+    -fx-alignment: center;
+    -fx-content-display: left;
+    -fx-graphic-text-gap: 8px;
+    -fx-cursor: hand;
+}
+
+.btn:hover {
+    -fx-background-color: -ss-surface-hover;
+    -fx-border-color: -ss-border-strong;
+}
+
+.btn:pressed {
+    -fx-background-color: -ss-surface-active;
+}
+
+.btn:focus-visible {
+    -fx-border-color: -ss-teal-600;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.35), 6, 0.45, 0, 0);
+}
+
+.btn:disabled {
+    -fx-opacity: 0.55;
+    -fx-cursor: default;
+}
+
+/* --------------------------------------------------------------------------
+ * Button Variants
+ * -------------------------------------------------------------------------- */
+
+.btn-primary {
+    -fx-background-color: -ss-teal-700;
+    -fx-border-color: -ss-teal-700;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.btn-primary .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.btn-primary:hover {
+    -fx-background-color: -ss-teal-800;
+    -fx-border-color: -ss-teal-800;
+}
+
+.btn-primary:pressed {
+    -fx-background-color: -ss-teal-900;
+    -fx-border-color: -ss-teal-900;
+}
+
+.btn-primary:focus-visible {
+    -fx-border-color: -ss-navy-900;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.48), 8, 0.55, 0, 0);
+}
+
+.btn-secondary {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-border-default;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.btn-secondary:hover {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-strong;
+}
+
+.btn-secondary:pressed {
+    -fx-background-color: -ss-surface-active;
+}
+
+.btn-outline-teal {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-teal-600;
+    -fx-text-fill: -ss-teal-700;
+}
+
+.btn-outline-teal .ui-icon-svg {
+    -fx-fill: -ss-teal-700;
+}
+
+.btn-outline-teal:hover {
+    -fx-background-color: -ss-teal-50;
+    -fx-border-color: -ss-teal-700;
+}
+
+.btn-outline-teal:pressed {
+    -fx-background-color: -ss-teal-100;
+}
+
+.btn-ghost {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.btn-ghost .ui-icon-svg {
+    -fx-fill: -ss-text-secondary;
+}
+
+.btn-ghost:hover {
+    -fx-background-color: -ss-surface-hover;
+    -fx-border-color: transparent;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.btn-ghost:hover .ui-icon-svg {
+    -fx-fill: -ss-text-primary;
+}
+
+.btn-ghost:pressed {
+    -fx-background-color: -ss-surface-active;
+}
+
+.btn-navy {
+    -fx-background-color: -ss-navy-900;
+    -fx-border-color: -ss-navy-900;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.btn-navy .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.btn-navy:hover {
+    -fx-background-color: -ss-navy-800;
+    -fx-border-color: -ss-navy-800;
+}
+
+.btn-navy:pressed {
+    -fx-background-color: -ss-navy-950;
+    -fx-border-color: -ss-navy-950;
+}
+
+.btn-success {
+    -fx-background-color: -ss-success-700;
+    -fx-border-color: -ss-success-700;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.btn-success .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.btn-success:hover {
+    -fx-background-color: -ss-success-800;
+    -fx-border-color: -ss-success-800;
+}
+
+.btn-warning {
+    -fx-background-color: -ss-warning-100;
+    -fx-border-color: -ss-warning-500;
+    -fx-text-fill: -ss-warning-800;
+}
+
+.btn-warning .ui-icon-svg {
+    -fx-fill: -ss-warning-700;
+}
+
+.btn-warning:hover {
+    -fx-background-color: -ss-warning-border;
+}
+
+.btn-danger {
+    -fx-background-color: -ss-error-600;
+    -fx-border-color: -ss-error-600;
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.btn-danger .ui-icon-svg {
+    -fx-fill: -ss-text-inverse;
+}
+
+.btn-danger:hover {
+    -fx-background-color: -ss-error-700;
+    -fx-border-color: -ss-error-700;
+}
+
+.btn-danger:focus-visible {
+    -fx-border-color: -ss-error-800;
+    -fx-effect: dropshadow(gaussian, rgba(220, 38, 38, 0.40), 7, 0.50, 0, 0);
+}
+
+.btn-danger-outline {
+    -fx-background-color: -ss-surface-card;
+    -fx-border-color: -ss-error-border;
+    -fx-text-fill: -ss-error-700;
+}
+
+.btn-danger-outline .ui-icon-svg {
+    -fx-fill: -ss-error-600;
+}
+
+.btn-danger-outline:hover {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-600;
+}
+
+/* --------------------------------------------------------------------------
+ * Button Sizes & Icon Buttons
+ * -------------------------------------------------------------------------- */
+
+.btn-sm {
+    -fx-padding: 5px 12px;
+    -fx-font-size: 12px;
+    -fx-background-radius: 6px;
+    -fx-border-radius: 6px;
+    -fx-graphic-text-gap: 6px;
+}
+
+.btn-lg {
+    -fx-padding: 11px 22px;
+    -fx-font-size: 14px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+}
+
+.btn-icon {
+    -fx-padding: 7px;
+    -fx-min-width: 32px;
+    -fx-min-height: 32px;
+    -fx-graphic-text-gap: 0px;
+}

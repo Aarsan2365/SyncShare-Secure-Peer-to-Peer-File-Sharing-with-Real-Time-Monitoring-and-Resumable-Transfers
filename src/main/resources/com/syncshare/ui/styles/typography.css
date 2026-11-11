@@ -1,0 +1,112 @@
+/* ==========================================================================
+ * SyncShare Design System — Typography & Iconography
+ * ========================================================================== */
+
+.text-display {
+    -fx-font-size: 24px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-page-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-section-title {
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-card-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-subtitle {
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.text-body {
+    -fx-font-size: 13px;
+    -fx-font-weight: normal;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-body-strong {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-secondary {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.text-caption {
+    -fx-font-size: 12px;
+    -fx-text-fill: -ss-text-muted;
+}
+
+.text-eyebrow {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-muted;
+}
+
+.text-metric {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-navy-900;
+}
+
+.text-mono {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -ss-text-primary;
+}
+
+.text-mono-sm {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+/* Semantic Text Tones */
+.text-teal    { -fx-text-fill: -ss-teal-700; }
+.text-success { -fx-text-fill: -ss-success-700; }
+.text-warning { -fx-text-fill: -ss-warning-700; }
+.text-error   { -fx-text-fill: -ss-error-700; }
+.text-info    { -fx-text-fill: -ss-info-700; }
+.text-inverse { -fx-text-fill: -ss-text-inverse; }
+.text-inverse-muted { -fx-text-fill: -ss-text-inverse-muted; }
+
+/* --------------------------------------------------------------------------
+ * Consistent Vector Iconography (SVGPath inside StackPane .ui-icon)
+ * -------------------------------------------------------------------------- */
+
+.ui-icon {
+    -fx-alignment: center;
+}
+
+.ui-icon-svg {
+    -fx-fill: -ss-text-secondary;
+    -fx-stroke-width: 0;
+}
+
+.ui-icon-primary .ui-icon-svg  { -fx-fill: -ss-text-primary; }
+.ui-icon-muted .ui-icon-svg    { -fx-fill: -ss-text-muted; }
+.ui-icon-teal .ui-icon-svg     { -fx-fill: -ss-teal-600; }
+.ui-icon-teal-bright .ui-icon-svg { -fx-fill: -ss-teal-400; }
+.ui-icon-success .ui-icon-svg  { -fx-fill: -ss-success-600; }
+.ui-icon-warning .ui-icon-svg  { -fx-fill: -ss-warning-600; }
+.ui-icon-error .ui-icon-svg    { -fx-fill: -ss-error-600; }
+.ui-icon-info .ui-icon-svg     { -fx-fill: -ss-info-600; }
+.ui-icon-inverse .ui-icon-svg  { -fx-fill: -ss-text-inverse; }
+.ui-icon-inverse-muted .ui-icon-svg { -fx-fill: -ss-text-inverse-muted; }

@@ -1,0 +1,65 @@
+/* ==========================================================================
+ * SyncShare Design System — Progress Bar Styles
+ * ========================================================================== */
+
+.ss-progress {
+    -fx-min-height: 8px;
+    -fx-pref-height: 8px;
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.ss-progress > .track {
+    -fx-background-color: -ss-surface-active;
+    -fx-background-insets: 0;
+    -fx-background-radius: 999px;
+    -fx-border-radius: 999px;
+}
+
+.ss-progress > .bar {
+    -fx-background-color: -ss-teal-600;
+    -fx-background-insets: 0;
+    -fx-background-radius: 999px;
+    -fx-padding: 0;
+}
+
+.ss-progress:indeterminate > .bar {
+    -fx-background-color: linear-gradient(to right, -ss-teal-400, -ss-teal-700);
+}
+
+/* Progress Size Variants */
+.progress-sm {
+    -fx-min-height: 5px;
+    -fx-pref-height: 5px;
+}
+
+.progress-lg {
+    -fx-min-height: 12px;
+    -fx-pref-height: 12px;
+}
+
+/* Progress Semantic States */
+.progress-info > .track    { -fx-background-color: -ss-info-100; }
+.progress-info > .bar      { -fx-background-color: -ss-info-600; }
+
+.progress-success > .track { -fx-background-color: -ss-success-100; }
+.progress-success > .bar   { -fx-background-color: -ss-success-600; }
+
+.progress-warning > .track { -fx-background-color: -ss-warning-100; }
+.progress-warning > .bar   { -fx-background-color: -ss-warning-500; }
+
+.progress-error > .track   { -fx-background-color: -ss-error-100; }
+.progress-error > .bar     { -fx-background-color: -ss-error-600; }
+
+.progress-navy > .bar      { -fx-background-color: -ss-navy-800; }
+
+.progress-header-row {
+    -fx-alignment: center-left;
+}
+
+.progress-percent {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-primary;
+}

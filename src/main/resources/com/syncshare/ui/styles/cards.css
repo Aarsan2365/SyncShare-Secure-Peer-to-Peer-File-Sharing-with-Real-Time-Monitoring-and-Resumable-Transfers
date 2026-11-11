@@ -1,0 +1,120 @@
+/* ==========================================================================
+ * SyncShare Design System — Reusable Card Styles
+ * ========================================================================== */
+
+.card {
+    -fx-background-color: -ss-surface-card;
+    -fx-background-radius: 12px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px;
+    -fx-padding: 20px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.06), 14, 0.12, 0, 3);
+}
+
+.card-compact {
+    -fx-padding: 14px 16px;
+}
+
+.card-elevated {
+    -fx-background-color: -ss-surface-card;
+    -fx-background-radius: 12px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px;
+    -fx-padding: 20px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.10), 22, 0.16, 0, 6);
+}
+
+.card-muted {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-background-radius: 12px;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px;
+    -fx-padding: 20px;
+    -fx-effect: null;
+}
+
+.card-interactive {
+    -fx-cursor: hand;
+}
+
+.card-interactive:hover {
+    -fx-border-color: -ss-teal-500;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.14), 18, 0.18, 0, 4);
+}
+
+.card-interactive:focus-visible {
+    -fx-border-color: -ss-teal-600;
+    -fx-effect: dropshadow(gaussian, rgba(13, 148, 136, 0.32), 10, 0.40, 0, 0);
+}
+
+.card-navy {
+    -fx-background-color: -ss-navy-900;
+    -fx-background-radius: 12px;
+    -fx-border-color: -ss-border-dark;
+    -fx-border-width: 1px;
+    -fx-border-radius: 12px;
+    -fx-padding: 20px;
+    -fx-effect: dropshadow(gaussian, rgba(11, 18, 32, 0.20), 18, 0.18, 0, 4);
+}
+
+.card-navy .label,
+.card-navy .text-card-title,
+.card-navy .text-body,
+.card-navy .text-metric {
+    -fx-text-fill: -ss-text-inverse;
+}
+
+.card-navy .text-subtitle,
+.card-navy .text-secondary,
+.card-navy .text-caption {
+    -fx-text-fill: -ss-text-inverse-muted;
+}
+
+/* Semantic Card Variants */
+.card-success {
+    -fx-border-color: -ss-success-border;
+    -fx-background-color: -ss-success-50;
+}
+
+.card-warning {
+    -fx-border-color: -ss-warning-border;
+    -fx-background-color: -ss-warning-50;
+}
+
+.card-error {
+    -fx-border-color: -ss-error-border;
+    -fx-background-color: -ss-error-50;
+}
+
+.card-info {
+    -fx-border-color: -ss-info-border;
+    -fx-background-color: -ss-info-50;
+}
+
+/* Card Structural Sub-regions */
+.card-header {
+    -fx-padding: 0 0 12px 0;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.card-navy .card-header {
+    -fx-border-color: -ss-border-dark;
+}
+
+.card-body {
+    -fx-padding: 12px 0 0 0;
+}
+
+.card-footer {
+    -fx-padding: 14px 0 0 0;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.card-navy .card-footer {
+    -fx-border-color: -ss-border-dark;
+}

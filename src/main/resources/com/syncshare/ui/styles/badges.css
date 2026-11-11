@@ -1,0 +1,96 @@
+/* ==========================================================================
+ * SyncShare Design System — Status Badges & Indicators
+ * ========================================================================== */
+
+.badge {
+    -fx-background-color: -ss-surface-hover;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 999px;
+    -fx-border-radius: 999px;
+    -fx-padding: 3px 10px;
+    -fx-alignment: center;
+    -fx-spacing: 6px;
+}
+
+.badge-label {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-text-secondary;
+}
+
+.badge-sm {
+    -fx-padding: 2px 8px;
+    -fx-spacing: 5px;
+}
+
+.badge-sm .badge-label {
+    -fx-font-size: 11px;
+}
+
+/* Badge Semantic Variants */
+.badge-neutral {
+    -fx-background-color: -ss-surface-hover;
+    -fx-border-color: -ss-border-subtle;
+}
+.badge-neutral .badge-label { -fx-text-fill: -ss-text-secondary; }
+
+.badge-teal {
+    -fx-background-color: -ss-teal-50;
+    -fx-border-color: -ss-teal-200;
+}
+.badge-teal .badge-label { -fx-text-fill: -ss-teal-700; }
+.badge-teal .ui-icon-svg { -fx-fill: -ss-teal-700; }
+
+.badge-info {
+    -fx-background-color: -ss-info-50;
+    -fx-border-color: -ss-info-border;
+}
+.badge-info .badge-label { -fx-text-fill: -ss-info-700; }
+.badge-info .ui-icon-svg { -fx-fill: -ss-info-700; }
+
+.badge-success {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-border;
+}
+.badge-success .badge-label { -fx-text-fill: -ss-success-700; }
+.badge-success .ui-icon-svg { -fx-fill: -ss-success-700; }
+
+.badge-warning {
+    -fx-background-color: -ss-warning-50;
+    -fx-border-color: -ss-warning-border;
+}
+.badge-warning .badge-label { -fx-text-fill: -ss-warning-700; }
+.badge-warning .ui-icon-svg { -fx-fill: -ss-warning-700; }
+
+.badge-error {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-border;
+}
+.badge-error .badge-label { -fx-text-fill: -ss-error-700; }
+.badge-error .ui-icon-svg { -fx-fill: -ss-error-700; }
+
+.badge-dark {
+    -fx-background-color: -ss-navy-800;
+    -fx-border-color: -ss-navy-700;
+}
+.badge-dark .badge-label { -fx-text-fill: -ss-text-inverse; }
+
+/* Status Dot Indicator */
+.status-dot {
+    -fx-min-width: 7px;
+    -fx-min-height: 7px;
+    -fx-pref-width: 7px;
+    -fx-pref-height: 7px;
+    -fx-max-width: 7px;
+    -fx-max-height: 7px;
+    -fx-background-radius: 999px;
+    -fx-background-color: -ss-text-muted;
+}
+
+.status-dot-neutral { -fx-background-color: -ss-text-muted; }
+.status-dot-teal    { -fx-background-color: -ss-teal-500; }
+.status-dot-info    { -fx-background-color: -ss-info-600; }
+.status-dot-success { -fx-background-color: -ss-success-600; }
+.status-dot-warning { -fx-background-color: -ss-warning-500; }
+.status-dot-error   { -fx-background-color: -ss-error-600; }
