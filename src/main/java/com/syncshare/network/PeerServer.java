@@ -19,13 +19,13 @@ public class PeerServer implements AutoCloseable {
     private final ApprovalHandler approvalHandler;
 
     private volatile boolean running = false;
+    private volatile boolean closed = false;
 
     public PeerServer(
             int port,
             ApprovalHandler approvalHandler
     ) throws IOException {
 
-        this.serverSocket = TlsSupport.listen(port);
         this.approvalHandler = approvalHandler;
 
         this.workers = new ThreadPoolExecutor(
@@ -43,11 +43,18 @@ public class PeerServer implements AutoCloseable {
         );
 
         this.listenerThread.setDaemon(true);
+
+        try {
+            this.serverSocket = TlsSupport.listen(port);
+        } catch (IOException | RuntimeException | Error e) {
+            this.workers.shutdownNow();
+            throw e;
+        }
     }
 
-    public void start() {
+    public synchronized void start() {
 
-        if (running) {
+        if (closed || running || serverSocket.isClosed()) {
             return;
         }
 
@@ -62,49 +69,15 @@ public class PeerServer implements AutoCloseable {
 
     private void listen() {
 
-        while (running) {
+        while (running && !closed && !serverSocket.isClosed() && !Thread.currentThread().isInterrupted()) {
 
             try {
                 Socket client = serverSocket.accept();
-
-                try {
-                    workers.execute(() -> {
-
-                        try (client) {
-
-                            client.setSoTimeout(180_000);
-
-                            System.out.println(
-                                "\nConnected: "
-                                + client.getInetAddress()
-                            );
-
-                            FileReceiver.receive(
-                                client,
-                                new ConsoleTransferListener(),
-                                approvalHandler
-                            );
-
-                        } catch (Exception e) {
-                            System.err.println(
-                                "Incoming transfer failed: "
-                                + e.getMessage()
-                            );
-                        }
-                    });
-
-                } catch (RejectedExecutionException e) {
-
-                    System.out.println(
-                        "Server busy. Connection rejected."
-                    );
-
-                    client.close();
-                }
+                dispatchClient(client);
 
             } catch (IOException e) {
 
-                if (running) {
+                if (running && !closed && !serverSocket.isClosed()) {
                     System.err.println(
                         "Listener error: " + e.getMessage()
                     );
@@ -113,20 +86,91 @@ public class PeerServer implements AutoCloseable {
         }
     }
 
+    private void dispatchClient(Socket client) {
+
+        try {
+            workers.execute(() -> {
+
+                try (client) {
+
+                    client.setSoTimeout(180_000);
+
+                    System.out.println(
+                        "\nConnected: "
+                        + client.getInetAddress()
+                    );
+
+                    FileReceiver.receive(
+                        client,
+                        new ConsoleTransferListener(),
+                        approvalHandler
+                    );
+
+                } catch (Exception e) {
+                    System.err.println(
+                        "Incoming transfer failed: "
+                        + e.getMessage()
+                    );
+                }
+            });
+
+        } catch (RejectedExecutionException e) {
+
+            if (!closed && !workers.isShutdown()) {
+                System.out.println(
+                    "Server busy. Connection rejected."
+                );
+            }
+
+            closeQuietly(client);
+
+        } catch (RuntimeException | Error e) {
+
+            closeQuietly(client);
+            throw e;
+        }
+    }
+
     public boolean isRunning() {
-        return running && !serverSocket.isClosed();
+        return running && !closed && !serverSocket.isClosed();
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
 
+        if (closed) {
+            return;
+        }
+
+        closed = true;
         running = false;
 
         try {
-            serverSocket.close();
+            if (!serverSocket.isClosed()) {
+                serverSocket.close();
+            }
         } catch (IOException ignored) {
+        } finally {
+            listenerThread.interrupt();
+            workers.shutdownNow();
         }
 
-        workers.shutdownNow();
+        if (listenerThread.isAlive() && Thread.currentThread() != listenerThread) {
+            try {
+                listenerThread.join(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private static void closeQuietly(Socket socket) {
+
+        if (socket != null && !socket.isClosed()) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+        }
     }
 }

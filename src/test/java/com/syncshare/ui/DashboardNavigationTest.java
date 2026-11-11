@@ -11,7 +11,6 @@ import com.syncshare.service.SyncShareServices;
 import com.syncshare.service.TransferService;
 import com.syncshare.ui.design.EmptyStatePane;
 import com.syncshare.ui.design.ValidatedTextField;
-import com.syncshare.ui.navigation.NavDestination;
 import com.syncshare.ui.navigation.NavigationResult;
 import com.syncshare.ui.navigation.SidebarNavItem;
 import com.syncshare.ui.navigation.SidebarNavigation;

@@ -19,63 +19,64 @@ public class TcpServer {
 
     public static void start(int port) throws IOException {
 
-        ThreadPoolExecutor workers = new ThreadPoolExecutor(
+        try (ThreadPoolExecutor workers = new ThreadPoolExecutor(
             MAX_WORKERS,
             MAX_WORKERS,
             0L,
             TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<>(QUEUE_CAPACITY),
             new ThreadPoolExecutor.AbortPolicy()
-        );
+        )) {
 
-        try (ServerSocket server = TlsSupport.listen(port))  {
+            try (ServerSocket server = TlsSupport.listen(port)) {
 
-            System.out.println("SyncShare Receiver Started!");
-            System.out.println("Listening on port: " + port);
-            System.out.println("Maximum workers: " + MAX_WORKERS);
+                System.out.println("SyncShare Receiver Started!");
+                System.out.println("Listening on port: " + port);
+                System.out.println("Maximum workers: " + MAX_WORKERS);
 
-            while (!Thread.currentThread().isInterrupted()) {
+                while (!Thread.currentThread().isInterrupted()) {
 
-                Socket client = server.accept();
+                    Socket client = server.accept();
 
-                try {
-                    workers.execute(() -> {
+                    try {
+                        workers.execute(() -> {
 
-                        try (client) {
+                            try (client) {
 
-                            System.out.println(
-                                "Worker: " +
-                                Thread.currentThread().getName()
-                            );
+                                System.out.println(
+                                    "Worker: " +
+                                    Thread.currentThread().getName()
+                                );
 
-                            System.out.println(
-                                "Connected: " +
-                                client.getInetAddress()
-                            );
+                                System.out.println(
+                                    "Connected: " +
+                                    client.getInetAddress()
+                                );
 
-                            client.setSoTimeout(180_000);
-                            FileReceiver.receive(client);
+                                client.setSoTimeout(180_000);
+                                FileReceiver.receive(client);
 
-                        } catch (Exception e) {
+                            } catch (Exception e) {
 
-                            System.out.println(
-                                "Transfer failed: " + e.getMessage()
-                            );
-                        }
-                    });
+                                System.out.println(
+                                    "Transfer failed: " + e.getMessage()
+                                );
+                            }
+                        });
 
-                } catch (RejectedExecutionException e) {
+                    } catch (RejectedExecutionException e) {
 
-                    System.out.println(
-                        "Server busy. Connection rejected."
-                    );
+                        System.out.println(
+                            "Server busy. Connection rejected."
+                        );
 
-                    client.close();
+                        client.close();
+                    }
                 }
-            }
 
-        } finally {
-            workers.shutdownNow();
+            } finally {
+                workers.shutdownNow();
+            }
         }
     }
 }
