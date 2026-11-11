@@ -3,20 +3,33 @@ package com.syncshare.network;
 
 import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
-import com.syncshare.transfer.FileReceiver;
+import com.syncshare.events.IncomingTransferObserver;
+import com.syncshare.events.TransferListener;
 import com.syncshare.security.TlsSupport;
+import com.syncshare.transfer.FileReceiver;
 
+import javax.net.ssl.SSLContext;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PeerServer implements AutoCloseable {
+
+    private static final AtomicInteger WORKER_SEQ = new AtomicInteger(1);
 
     private final ServerSocket serverSocket;
     private final Thread listenerThread;
     private final ThreadPoolExecutor workers;
     private final ApprovalHandler approvalHandler;
+    private final TransferListener transferListener;
+    private final Path receiveDirectory;
+    private final IncomingTransferObserver observer;
+    private final Set<Socket> activeClients = ConcurrentHashMap.newKeySet();
 
     private volatile boolean running = false;
     private volatile boolean closed = false;
@@ -25,8 +38,32 @@ public class PeerServer implements AutoCloseable {
             int port,
             ApprovalHandler approvalHandler
     ) throws IOException {
+        this(port, approvalHandler, new ConsoleTransferListener(), null, null, null);
+    }
+
+    public PeerServer(
+            int port,
+            ApprovalHandler approvalHandler,
+            TransferListener transferListener,
+            Path receiveDirectory,
+            IncomingTransferObserver observer
+    ) throws IOException {
+        this(port, approvalHandler, transferListener, receiveDirectory, observer, null);
+    }
+
+    public PeerServer(
+            int port,
+            ApprovalHandler approvalHandler,
+            TransferListener transferListener,
+            Path receiveDirectory,
+            IncomingTransferObserver observer,
+            SSLContext sslContext
+    ) throws IOException {
 
         this.approvalHandler = approvalHandler;
+        this.transferListener = transferListener != null ? transferListener : new ConsoleTransferListener();
+        this.receiveDirectory = receiveDirectory;
+        this.observer = observer != null ? observer : IncomingTransferObserver.NO_OP;
 
         this.workers = new ThreadPoolExecutor(
             4,
@@ -34,6 +71,14 @@ public class PeerServer implements AutoCloseable {
             0L,
             TimeUnit.MILLISECONDS,
             new ArrayBlockingQueue<>(8),
+            runnable -> {
+                Thread thread = new Thread(
+                    runnable,
+                    "syncshare-receiver-worker-" + WORKER_SEQ.getAndIncrement()
+                );
+                thread.setDaemon(true);
+                return thread;
+            },
             new ThreadPoolExecutor.AbortPolicy()
         );
 
@@ -45,7 +90,9 @@ public class PeerServer implements AutoCloseable {
         this.listenerThread.setDaemon(true);
 
         try {
-            this.serverSocket = TlsSupport.listen(port);
+            this.serverSocket = sslContext != null
+                ? TlsSupport.listen(port, sslContext)
+                : TlsSupport.listen(port);
         } catch (IOException | RuntimeException | Error e) {
             this.workers.shutdownNow();
             throw e;
@@ -65,6 +112,10 @@ public class PeerServer implements AutoCloseable {
             "Background TCP Receiver started on port "
             + serverSocket.getLocalPort()
         );
+    }
+
+    public int getLocalPort() {
+        return serverSocket.getLocalPort();
     }
 
     private void listen() {
@@ -88,6 +139,12 @@ public class PeerServer implements AutoCloseable {
 
     private void dispatchClient(Socket client) {
 
+        String transferId = UUID.randomUUID().toString();
+        String senderEndpoint = client.getInetAddress() != null
+            ? client.getInetAddress().getHostAddress() + ":" + client.getPort()
+            : "unknown";
+        activeClients.add(client);
+
         try {
             workers.execute(() -> {
 
@@ -102,8 +159,11 @@ public class PeerServer implements AutoCloseable {
 
                     FileReceiver.receive(
                         client,
-                        new ConsoleTransferListener(),
-                        approvalHandler
+                        transferListener,
+                        approvalHandler,
+                        receiveDirectory,
+                        observer,
+                        transferId
                     );
 
                 } catch (Exception e) {
@@ -111,21 +171,29 @@ public class PeerServer implements AutoCloseable {
                         "Incoming transfer failed: "
                         + e.getMessage()
                     );
+                } finally {
+                    activeClients.remove(client);
                 }
             });
 
         } catch (RejectedExecutionException e) {
 
+            activeClients.remove(client);
             if (!closed && !workers.isShutdown()) {
                 System.out.println(
                     "Server busy. Connection rejected."
                 );
+                try {
+                    observer.onError(transferId, "unknown", senderEndpoint, new IOException("Receiver busy; connection rejected", e));
+                } catch (RuntimeException ignored) {
+                }
             }
 
             closeQuietly(client);
 
         } catch (RuntimeException | Error e) {
 
+            activeClients.remove(client);
             closeQuietly(client);
             throw e;
         }
@@ -151,6 +219,10 @@ public class PeerServer implements AutoCloseable {
             }
         } catch (IOException ignored) {
         } finally {
+            for (Socket activeClient : activeClients) {
+                closeQuietly(activeClient);
+            }
+            activeClients.clear();
             listenerThread.interrupt();
             workers.shutdownNow();
         }
@@ -161,6 +233,11 @@ public class PeerServer implements AutoCloseable {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+        try {
+            workers.awaitTermination(1000, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

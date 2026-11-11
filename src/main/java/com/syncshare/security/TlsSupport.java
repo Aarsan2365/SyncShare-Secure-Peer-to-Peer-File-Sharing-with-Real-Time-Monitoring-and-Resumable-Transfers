@@ -49,6 +49,23 @@ public final class TlsSupport {
         );
 
         try {
+            return createContext(keyPath, trustPath, password);
+        } finally {
+            Arrays.fill(password, '\0');
+        }
+    }
+
+    public static SSLContext createContext(
+            Path keyPath,
+            Path trustPath,
+            char[] password
+    ) throws IOException {
+
+        if (keyPath == null || trustPath == null || password == null || password.length == 0) {
+            throw new IOException("TLS keystore, truststore, and password are required");
+        }
+
+        try {
             KeyStore identity = KeyStore.getInstance("PKCS12");
 
             try (InputStream input = Files.newInputStream(keyPath)) {
@@ -85,16 +102,22 @@ public final class TlsSupport {
 
         } catch (GeneralSecurityException e) {
             throw new IOException("Cannot configure TLS", e);
-
-        } finally {
-            Arrays.fill(password, '\0');
         }
     }
 
     public static SSLServerSocket listen(int port) throws IOException {
+        return listen(port, createContext());
+    }
+
+    public static SSLServerSocket listen(int port, SSLContext context)
+            throws IOException {
+
+        if (context == null) {
+            throw new IOException("TLS SSLContext is required");
+        }
 
         SSLServerSocket server = (SSLServerSocket)
-            createContext()
+            context
                 .getServerSocketFactory()
                 .createServerSocket(port);
 
@@ -106,9 +129,18 @@ public final class TlsSupport {
 
     public static SSLSocket connect(String host, int port)
             throws IOException {
+        return connect(host, port, createContext());
+    }
+
+    public static SSLSocket connect(String host, int port, SSLContext context)
+            throws IOException {
+
+        if (context == null) {
+            throw new IOException("TLS SSLContext is required");
+        }
 
         SSLSocket socket = (SSLSocket)
-            createContext()
+            context
                 .getSocketFactory()
                 .createSocket();
 
@@ -133,6 +165,21 @@ public final class TlsSupport {
 
             throw e;
         }
+    }
+
+    public static String extractPeerSubject(Socket connection) {
+        if (!(connection instanceof SSLSocket socket)) {
+            return null;
+        }
+        try {
+            var certificates = socket.getSession().getPeerCertificates();
+            if (certificates != null && certificates.length > 0
+                    && certificates[0] instanceof X509Certificate cert) {
+                return cert.getSubjectX500Principal().getName();
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     public static String authenticate(Socket connection)

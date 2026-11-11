@@ -28,8 +28,8 @@ public final class SyncShareServices {
     public static SyncShareServices createDefault() {
         SettingsService settings = new SettingsService();
         DeviceInfoService deviceInfo = new DeviceInfoService(settings);
-        ConnectionService connection = new ConnectionService(settings, deviceInfo);
         TransferService transfers = new TransferService();
+        ConnectionService connection = new ConnectionService(settings, deviceInfo, transfers);
         return new SyncShareServices(settings, deviceInfo, connection, transfers);
     }
 
