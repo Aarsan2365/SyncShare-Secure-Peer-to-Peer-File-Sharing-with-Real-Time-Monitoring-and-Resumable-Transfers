@@ -1,9 +1,16 @@
 package com.syncshare.service;
 
 import com.syncshare.approval.ApprovalHandler;
+import com.syncshare.events.ConsoleTransferListener;
+import com.syncshare.events.IncomingTransferObserver;
+import com.syncshare.model.AppSettings;
 import com.syncshare.model.ConnectionState;
 import com.syncshare.model.ConnectionStatus;
 import com.syncshare.model.IncomingRequestItem;
+import com.syncshare.model.IncomingTransferSession;
+import com.syncshare.model.TransferDirection;
+import com.syncshare.model.TransferItem;
+import com.syncshare.model.TransferStatus;
 import com.syncshare.network.PeerServer;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -12,7 +19,9 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 
 import java.io.IOException;
+import java.net.BindException;
 import java.net.InetAddress;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -24,23 +33,50 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Coordinates SyncShare peer listener readiness, connection indicator state,
- * and incoming transfer approval decisions without exposing socket APIs to UI controllers.
+ * incoming transfer lifecycle events, and approval decisions without exposing
+ * socket APIs to UI controllers.
  */
-public class ConnectionService {
+public class ConnectionService implements IncomingTransferGateway {
 
     @FunctionalInterface
     public interface ServerStarter {
         AutoCloseable start(int port, ApprovalHandler approvalHandler) throws IOException;
     }
 
+    @FunctionalInterface
+    public interface ReceiverServerFactory {
+        AutoCloseable start(
+            int port,
+            ApprovalHandler approvalHandler,
+            Path receiveDirectory,
+            IncomingTransferObserver observer
+        ) throws IOException;
+    }
+
+    private static final class TrackedIncomingTransfer {
+        volatile String fileName = "unknown";
+        volatile long totalBytes;
+        volatile long transferredBytes;
+        volatile String senderAddress = "Unknown sender";
+        volatile String peerIdentity = "";
+        volatile boolean emittedNonZeroProgress;
+        volatile long lastUiProgressNanos;
+    }
+
     private static final int APPROVAL_TIMEOUT_SECONDS = 120;
+    private static final long PROGRESS_THROTTLE_NANOS = 40_000_000L;
 
     private final SettingsService settingsService;
     private final DeviceInfoService deviceInfoService;
-    private final ServerStarter serverStarter;
+    private final TransferService transferService;
+    private final ServerStarter legacyServerStarter;
+    private final ReceiverServerFactory receiverServerFactory;
+    private final boolean usingLegacyStarter;
 
     private final ReadOnlyObjectWrapper<ConnectionStatus> status =
         new ReadOnlyObjectWrapper<>(this, "status");
+    private final ReadOnlyObjectWrapper<IncomingTransferSession> incomingSession =
+        new ReadOnlyObjectWrapper<>(this, "incomingSession", IncomingTransferSession.idle());
     private final ObservableList<IncomingRequestItem> pendingRequests =
         FXCollections.observableArrayList();
     private final ObservableList<IncomingRequestItem> unmodifiablePendingRequests =
@@ -49,16 +85,17 @@ public class ConnectionService {
     private final AtomicInteger nextRequestId = new AtomicInteger(1);
     private final ConcurrentHashMap<Integer, CompletableFuture<Boolean>> pendingDecisions =
         new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, TrackedIncomingTransfer> activeSessions =
+        new ConcurrentHashMap<>();
 
+    private volatile ConnectionStatus latestStatus;
+    private volatile IncomingTransferSession latestIncomingSession = IncomingTransferSession.idle();
     private AutoCloseable activeServer;
     private volatile boolean listening;
+    private volatile int boundPort = -1;
 
     public ConnectionService(SettingsService settingsService, DeviceInfoService deviceInfoService) {
-        this(settingsService, deviceInfoService, (port, handler) -> {
-            PeerServer server = new PeerServer(port, handler);
-            server.start();
-            return server;
-        });
+        this(settingsService, deviceInfoService, (TransferService) null);
     }
 
     public ConnectionService(
@@ -68,10 +105,61 @@ public class ConnectionService {
     ) {
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
-        this.serverStarter = Objects.requireNonNull(serverStarter, "serverStarter");
+        this.transferService = null;
+        this.legacyServerStarter = Objects.requireNonNull(serverStarter, "serverStarter");
+        this.receiverServerFactory = (port, handler, dir, observer) -> this.legacyServerStarter.start(port, handler);
+        this.usingLegacyStarter = true;
 
+        initializeServiceListeners();
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        TransferService transferService
+    ) {
+        this(
+            settingsService,
+            deviceInfoService,
+            transferService,
+            (port, handler, receiveDir, observer) -> {
+                PeerServer server = new PeerServer(
+                    port,
+                    handler,
+                    new ConsoleTransferListener(),
+                    receiveDir,
+                    observer
+                );
+                server.start();
+                return server;
+            }
+        );
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        TransferService transferService,
+        ReceiverServerFactory receiverServerFactory
+    ) {
+        this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
+        this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
+        this.transferService = transferService;
+        this.legacyServerStarter = null;
+        this.receiverServerFactory = Objects.requireNonNull(receiverServerFactory, "receiverServerFactory");
+        this.usingLegacyStarter = false;
+
+        initializeServiceListeners();
+    }
+
+    private void initializeServiceListeners() {
         this.settingsService.settingsProperty().addListener((obs, oldVal, newVal) -> {
-            if (!listening) {
+            if (listening) {
+                return;
+            }
+            boolean portChanged = oldVal == null || newVal == null || oldVal.listeningPort() != newVal.listeningPort();
+            ConnectionStatus current = latestStatus;
+            if (portChanged || current == null || current.state() != ConnectionState.ERROR) {
                 refreshStatus();
             }
         });
@@ -82,49 +170,167 @@ public class ConnectionService {
         }
     }
 
+    @Override
     public ConnectionStatus getStatus() {
-        return status.get();
+        ConnectionStatus current = latestStatus;
+        return current != null ? current : status.get();
     }
 
+    @Override
     public ReadOnlyObjectProperty<ConnectionStatus> statusProperty() {
         return status.getReadOnlyProperty();
     }
 
+    @Override
+    public IncomingTransferSession getIncomingSession() {
+        IncomingTransferSession current = latestIncomingSession;
+        return current != null ? current : incomingSession.get();
+    }
+
+    @Override
+    public ReadOnlyObjectProperty<IncomingTransferSession> incomingSessionProperty() {
+        return incomingSession.getReadOnlyProperty();
+    }
+
+    @Override
     public ObservableList<IncomingRequestItem> getPendingRequests() {
         return unmodifiablePendingRequests;
     }
 
+    @Override
     public boolean isListening() {
         return listening;
     }
 
+    @Override
+    public int getBoundPort() {
+        return boundPort;
+    }
+
+    @Override
+    public ReceiveDestinationValidator.ValidationResult validateDestination(String directoryPath) {
+        return ReceiveDestinationValidator.validateDirectory(directoryPath);
+    }
+
+    @Override
+    public ReceiveDestinationValidator.ValidationResult createAndValidateDestination(String directoryPath) {
+        ReceiveDestinationValidator.ValidationResult result =
+            ReceiveDestinationValidator.createAndValidateDirectory(directoryPath);
+        if (result.valid() && result.resolvedDirectory() != null) {
+            syncReceiveDirectorySetting(result.resolvedDirectory());
+        }
+        return result;
+    }
+
     public synchronized boolean startReceiver() {
+        if (usingLegacyStarter) {
+            int port = settingsService.getSettings().listeningPort();
+            boolean tlsConfigured = deviceInfoService.isTlsConfigured();
+            if (isServerActive()) {
+                updateStatus(ConnectionStatus.listening(resolveDisplayPort(port), pendingRequests.size()));
+                return true;
+            }
+            if (!tlsConfigured) {
+                updateStatus(ConnectionStatus.tlsSetupRequired(port));
+                return false;
+            }
+            try {
+                activeServer = legacyServerStarter.start(port, this::handleIncomingApproval);
+                listening = true;
+                boundPort = resolveBoundPort(activeServer, port);
+                updateStatus(ConnectionStatus.listening(boundPort, pendingRequests.size()));
+                return true;
+            } catch (IOException | RuntimeException error) {
+                listening = false;
+                activeServer = null;
+                boundPort = -1;
+                updateStatus(ConnectionStatus.error(port, describeStartupError(port, error)));
+                return false;
+            }
+        }
+
+        String configuredDir = settingsService.getSettings().receiveDirectory();
+        ReceiveDestinationValidator.ValidationResult dirCheck =
+            ReceiveDestinationValidator.validateDirectory(configuredDir);
+        if (!dirCheck.valid()
+            && dirCheck.missingDirectory()
+            && AppSettings.DEFAULT_RECEIVE_DIR.equals(configuredDir)) {
+            dirCheck = ReceiveDestinationValidator.createAndValidateDirectory(configuredDir);
+        }
+        if (!dirCheck.valid() || dirCheck.resolvedDirectory() == null) {
+            int port = settingsService.getSettings().listeningPort();
+            updateStatus(ConnectionStatus.error(port, dirCheck.message()));
+            return false;
+        }
+        return startReceiving(dirCheck.resolvedDirectory());
+    }
+
+    @Override
+    public synchronized boolean startReceiving(Path validatedDestination) {
         int port = settingsService.getSettings().listeningPort();
-        boolean tlsConfigured = deviceInfoService.isTlsConfigured();
-        if (listening && activeServer != null) {
-            updateStatus(ConnectionStatus.listening(port, pendingRequests.size()));
+        if (isServerActive()) {
+            updateStatus(ConnectionStatus.listening(resolveDisplayPort(port), pendingRequests.size()));
             return true;
         }
+        // Clean up stale closed reference if server died unexpectedly
+        if (activeServer != null) {
+            closeQuietly(activeServer);
+            activeServer = null;
+            listening = false;
+            boundPort = -1;
+        }
+
+        ReceiveDestinationValidator.ValidationResult dirCheck =
+            ReceiveDestinationValidator.validateDirectory(validatedDestination);
+        if (!dirCheck.valid() || dirCheck.resolvedDirectory() == null) {
+            updateStatus(ConnectionStatus.error(port, dirCheck.message()));
+            return false;
+        }
+
+        boolean tlsConfigured = deviceInfoService.isTlsConfigured();
         if (!tlsConfigured) {
             updateStatus(ConnectionStatus.tlsSetupRequired(port));
             return false;
         }
 
+        Path resolvedDir = dirCheck.resolvedDirectory();
+
         try {
-            activeServer = serverStarter.start(port, this::handleIncomingApproval);
+            activeServer = receiverServerFactory.start(
+                port,
+                this::handleIncomingApproval,
+                resolvedDir,
+                createIncomingObserver()
+            );
             listening = true;
-            updateStatus(ConnectionStatus.listening(port, pendingRequests.size()));
+            boundPort = resolveBoundPort(activeServer, port);
+            syncReceiveDirectorySetting(resolvedDir);
+            IncomingTransferSession currentSession = getIncomingSession();
+            if (currentSession == null
+                || currentSession.stage() == IncomingTransferSession.Stage.COMPLETED
+                || currentSession.stage() == IncomingTransferSession.Stage.FAILED
+                || currentSession.stage() == IncomingTransferSession.Stage.REJECTED) {
+                updateIncomingSession(IncomingTransferSession.idle());
+            }
+            updateStatus(ConnectionStatus.listening(boundPort, pendingRequests.size()));
             return true;
         } catch (IOException | RuntimeException error) {
             listening = false;
             activeServer = null;
-            updateStatus(ConnectionStatus.error(port, error.getMessage()));
+            boundPort = -1;
+            updateStatus(ConnectionStatus.error(port, describeStartupError(port, error)));
             return false;
         }
     }
 
+    @Override
+    public synchronized void stopReceiving() {
+        stopReceiver();
+    }
+
     public synchronized void stopReceiver() {
         listening = false;
+        boundPort = -1;
         if (activeServer != null) {
             try {
                 activeServer.close();
@@ -134,19 +340,27 @@ public class ConnectionService {
             }
         }
         rejectAllPending();
+        IncomingTransferSession current = getIncomingSession();
+        if (current != null
+            && (current.stage() == IncomingTransferSession.Stage.CONNECTED
+                || current.stage() == IncomingTransferSession.Stage.AWAITING_APPROVAL)) {
+            updateIncomingSession(IncomingTransferSession.idle());
+        }
         refreshStatus();
     }
 
     public void refreshStatus() {
-        int port = settingsService.getSettings().listeningPort();
+        int configuredPort = settingsService.getSettings().listeningPort();
+        int port = boundPort > 0 ? boundPort : configuredPort;
         boolean tlsConfigured = deviceInfoService.isTlsConfigured();
-        if (listening && activeServer != null) {
+        if (isServerActive()) {
             updateStatus(ConnectionStatus.listening(port, pendingRequests.size()));
         } else {
-            updateStatus(ConnectionStatus.standby(port, tlsConfigured));
+            updateStatus(ConnectionStatus.standby(configuredPort, tlsConfigured));
         }
     }
 
+    @Override
     public boolean approveRequest(int requestId, boolean accepted) {
         CompletableFuture<Boolean> future = pendingDecisions.remove(requestId);
         if (future == null) {
@@ -170,6 +384,351 @@ public class ConnectionService {
         runOnFxThread(pendingRequests::clear);
     }
 
+    @Override
+    public void clearSessionNotice() {
+        updateIncomingSession(IncomingTransferSession.idle());
+    }
+
+    private IncomingTransferObserver createIncomingObserver() {
+        return new IncomingTransferObserver() {
+            @Override
+            public void onConnectionOpened(String transferId, String senderAddress, String peerId) {
+                TrackedIncomingTransfer tracked = activeSessions.computeIfAbsent(
+                    transferId,
+                    key -> new TrackedIncomingTransfer()
+                );
+                tracked.senderAddress = senderAddress != null ? senderAddress : "Unknown sender";
+                tracked.peerIdentity = peerId != null ? peerId : "";
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    IncomingTransferSession.Stage.CONNECTED,
+                    "Negotiating offer...",
+                    0L,
+                    0L,
+                    tracked.senderAddress,
+                    tracked.peerIdentity,
+                    null,
+                    "Incoming Connection",
+                    "Authenticated mTLS 1.3 peer: " + tracked.senderAddress,
+                    Instant.now()
+                ));
+
+                if (listening) {
+                    int port = resolveDisplayPort(settingsService.getSettings().listeningPort());
+                    updateStatus(new ConnectionStatus(
+                        ConnectionState.CONNECTED,
+                        "Incoming Connection",
+                        "Authenticated peer " + tracked.senderAddress,
+                        port,
+                        true,
+                        Math.max(1, pendingRequests.size())
+                    ));
+                }
+            }
+
+            @Override
+            public void onFileOffered(
+                String transferId,
+                String fileName,
+                long fileSize,
+                String senderAddress,
+                String peerId
+            ) {
+                TrackedIncomingTransfer tracked = activeSessions.computeIfAbsent(
+                    transferId,
+                    key -> new TrackedIncomingTransfer()
+                );
+                tracked.fileName = fileName;
+                tracked.totalBytes = Math.max(0L, fileSize);
+                if (senderAddress != null && !senderAddress.isBlank()) {
+                    tracked.senderAddress = senderAddress;
+                }
+                if (peerId != null && !peerId.isBlank()) {
+                    tracked.peerIdentity = peerId;
+                }
+
+                boolean manualApproval = settingsService.getSettings().requireApproval();
+                IncomingTransferSession.Stage nextStage = manualApproval
+                    ? IncomingTransferSession.Stage.AWAITING_APPROVAL
+                    : IncomingTransferSession.Stage.CONNECTED;
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    nextStage,
+                    fileName,
+                    fileSize,
+                    0L,
+                    tracked.senderAddress,
+                    tracked.peerIdentity,
+                    null,
+                    manualApproval ? "Awaiting Approval" : "File Offer Received",
+                    manualApproval
+                        ? "Approve or reject " + fileName + " (" + TransferItem.formatByteCount(fileSize) + ")"
+                        : "Preparing destination and resume checkpoint...",
+                    Instant.now()
+                ));
+
+                if (transferService != null) {
+                    transferService.upsertActiveTransfer(new TransferItem(
+                        transferId,
+                        fileName,
+                        fileSize,
+                        0L,
+                        TransferDirection.INCOMING,
+                        manualApproval ? TransferStatus.AWAITING_APPROVAL : TransferStatus.QUEUED,
+                        tracked.senderAddress,
+                        "Pending SHA-256",
+                        Instant.now(),
+                        manualApproval ? "Awaiting local approval" : "Offer accepted automatically"
+                    ));
+                }
+            }
+
+            @Override
+            public void onApprovalDecision(String transferId, String fileName, boolean accepted) {
+                TrackedIncomingTransfer tracked = activeSessions.get(transferId);
+                String sender = tracked != null ? tracked.senderAddress : "Unknown sender";
+                String peerId = tracked != null ? tracked.peerIdentity : "";
+                long total = tracked != null ? tracked.totalBytes : 0L;
+
+                if (!accepted) {
+                    activeSessions.remove(transferId);
+                    updateIncomingSession(new IncomingTransferSession(
+                        transferId,
+                        IncomingTransferSession.Stage.REJECTED,
+                        fileName,
+                        total,
+                        0L,
+                        sender,
+                        peerId,
+                        null,
+                        "Incoming Offer Rejected",
+                        "Declined " + fileName + " from " + sender,
+                        Instant.now()
+                    ));
+                    if (transferService != null) {
+                        transferService.moveToHistory(new TransferItem(
+                            transferId,
+                            fileName,
+                            total,
+                            0L,
+                            TransferDirection.INCOMING,
+                            TransferStatus.REJECTED,
+                            sender,
+                            "Rejected",
+                            Instant.now(),
+                            "Rejected by receiver"
+                        ));
+                    }
+                    refreshStatus();
+                }
+            }
+
+            @Override
+            public void onStarted(
+                String transferId,
+                String fileName,
+                long totalBytes,
+                String senderAddress,
+                String peerId
+            ) {
+                TrackedIncomingTransfer tracked = activeSessions.computeIfAbsent(
+                    transferId,
+                    key -> new TrackedIncomingTransfer()
+                );
+                tracked.fileName = fileName;
+                tracked.totalBytes = Math.max(0L, totalBytes);
+                if (senderAddress != null && !senderAddress.isBlank()) {
+                    tracked.senderAddress = senderAddress;
+                }
+                if (peerId != null && !peerId.isBlank()) {
+                    tracked.peerIdentity = peerId;
+                }
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    IncomingTransferSession.Stage.RECEIVING,
+                    fileName,
+                    totalBytes,
+                    0L,
+                    tracked.senderAddress,
+                    tracked.peerIdentity,
+                    null,
+                    "Receiving File",
+                    "Streaming encrypted chunks from " + tracked.senderAddress,
+                    Instant.now()
+                ));
+
+                if (transferService != null) {
+                    transferService.upsertActiveTransfer(new TransferItem(
+                        transferId,
+                        fileName,
+                        totalBytes,
+                        0L,
+                        TransferDirection.INCOMING,
+                        TransferStatus.TRANSFERRING,
+                        tracked.senderAddress,
+                        "SHA-256 active",
+                        Instant.now(),
+                        "Receiving encrypted chunks"
+                    ));
+                }
+
+                if (listening) {
+                    int port = resolveDisplayPort(settingsService.getSettings().listeningPort());
+                    updateStatus(new ConnectionStatus(
+                        ConnectionState.CONNECTED,
+                        "Receiving • " + fileName,
+                        "Receiving from " + tracked.senderAddress,
+                        port,
+                        true,
+                        1
+                    ));
+                }
+            }
+
+            @Override
+            public void onProgress(String transferId, String fileName, long transferredBytes, long totalBytes) {
+                TrackedIncomingTransfer tracked = activeSessions.computeIfAbsent(
+                    transferId,
+                    key -> new TrackedIncomingTransfer()
+                );
+                tracked.fileName = fileName;
+                tracked.totalBytes = Math.max(0L, totalBytes);
+                tracked.transferredBytes = Math.max(0L, transferredBytes);
+
+                long now = System.nanoTime();
+                boolean isBoundary = transferredBytes == 0L || (totalBytes > 0L && transferredBytes >= totalBytes);
+                boolean firstNonZeroChunk = transferredBytes > 0L && !tracked.emittedNonZeroProgress;
+                if (!isBoundary && !firstNonZeroChunk && (now - tracked.lastUiProgressNanos) < PROGRESS_THROTTLE_NANOS) {
+                    return;
+                }
+                if (transferredBytes > 0L) {
+                    tracked.emittedNonZeroProgress = true;
+                    tracked.lastUiProgressNanos = now;
+                }
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    IncomingTransferSession.Stage.RECEIVING,
+                    fileName,
+                    totalBytes,
+                    transferredBytes,
+                    tracked.senderAddress,
+                    tracked.peerIdentity,
+                    null,
+                    "Receiving File",
+                    "Verified chunk checkpoint at " + TransferItem.formatByteCount(transferredBytes),
+                    Instant.now()
+                ));
+
+                if (transferService != null) {
+                    transferService.upsertActiveTransfer(new TransferItem(
+                        transferId,
+                        fileName,
+                        totalBytes,
+                        transferredBytes,
+                        TransferDirection.INCOMING,
+                        TransferStatus.TRANSFERRING,
+                        tracked.senderAddress,
+                        "SHA-256 active",
+                        Instant.now(),
+                        "Receiving encrypted chunks"
+                    ));
+                }
+            }
+
+            @Override
+            public void onCompleted(String transferId, String fileName, Path savedDestination) {
+                TrackedIncomingTransfer tracked = activeSessions.remove(transferId);
+                long total = tracked != null ? tracked.totalBytes : 0L;
+                String sender = tracked != null ? tracked.senderAddress : "Unknown sender";
+                String peerId = tracked != null ? tracked.peerIdentity : "";
+                String locationText = savedDestination != null
+                    ? savedDestination.toAbsolutePath().toString()
+                    : "receive directory";
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    IncomingTransferSession.Stage.COMPLETED,
+                    fileName,
+                    total,
+                    total,
+                    sender,
+                    peerId,
+                    savedDestination,
+                    "File Received & Verified",
+                    "SHA-256 verified • Saved to " + locationText,
+                    Instant.now()
+                ));
+
+                if (transferService != null) {
+                    transferService.moveToHistory(new TransferItem(
+                        transferId,
+                        fileName,
+                        total,
+                        total,
+                        TransferDirection.INCOMING,
+                        TransferStatus.COMPLETED,
+                        sender,
+                        "SHA-256 verified",
+                        Instant.now(),
+                        "Saved to " + locationText
+                    ));
+                }
+                refreshStatus();
+            }
+
+            @Override
+            public void onError(String transferId, String fileName, String senderAddress, Exception error) {
+                TrackedIncomingTransfer tracked = activeSessions.remove(transferId);
+                long total = tracked != null ? tracked.totalBytes : 0L;
+                long done = tracked != null ? tracked.transferredBytes : 0L;
+                String sender = (senderAddress != null && !senderAddress.isBlank())
+                    ? senderAddress
+                    : (tracked != null ? tracked.senderAddress : "Unknown sender");
+                String peerId = tracked != null ? tracked.peerIdentity : "";
+                String resolvedName = (fileName != null && !fileName.isBlank())
+                    ? fileName
+                    : (tracked != null ? tracked.fileName : "unknown");
+                String detail = error != null && error.getMessage() != null && !error.getMessage().isBlank()
+                    ? error.getMessage()
+                    : "Incoming transfer interrupted";
+
+                updateIncomingSession(new IncomingTransferSession(
+                    transferId,
+                    IncomingTransferSession.Stage.FAILED,
+                    resolvedName,
+                    total,
+                    done,
+                    sender,
+                    peerId,
+                    null,
+                    "Incoming Transfer Failed",
+                    detail,
+                    Instant.now()
+                ));
+
+                if (transferService != null) {
+                    transferService.moveToHistory(new TransferItem(
+                        transferId,
+                        resolvedName,
+                        total,
+                        done,
+                        TransferDirection.INCOMING,
+                        TransferStatus.FAILED,
+                        sender,
+                        "Interrupted",
+                        Instant.now(),
+                        detail
+                    ));
+                }
+                refreshStatus();
+            }
+        };
+    }
+
     private boolean handleIncomingApproval(String fileName, long fileSize, InetAddress sender) throws IOException {
         if (!settingsService.getSettings().requireApproval()) {
             return true;
@@ -183,11 +742,12 @@ public class ConnectionService {
         runOnFxThread(() -> {
             pendingRequests.add(item);
             if (listening) {
+                int port = resolveDisplayPort(settingsService.getSettings().listeningPort());
                 updateStatus(new ConnectionStatus(
                     ConnectionState.CONNECTED,
                     "Incoming Offer • #" + id,
                     "Awaiting approval for " + fileName + " from " + senderText,
-                    settingsService.getSettings().listeningPort(),
+                    port,
                     true,
                     pendingRequests.size()
                 ));
@@ -214,10 +774,74 @@ public class ConnectionService {
 
     public void shutdown() {
         stopReceiver();
+        activeSessions.clear();
+    }
+
+    private boolean isServerActive() {
+        if (!listening || activeServer == null) {
+            return false;
+        }
+        if (activeServer instanceof PeerServer peerServer) {
+            return peerServer.isRunning();
+        }
+        return true;
+    }
+
+    private int resolveDisplayPort(int fallback) {
+        return boundPort > 0 ? boundPort : fallback;
+    }
+
+    private static int resolveBoundPort(AutoCloseable server, int fallback) {
+        if (server instanceof PeerServer peerServer) {
+            return peerServer.getLocalPort();
+        }
+        return fallback;
+    }
+
+    private void syncReceiveDirectorySetting(Path resolvedDir) {
+        String normalizedPath = resolvedDir.toAbsolutePath().normalize().toString();
+        AppSettings current = settingsService.getSettings();
+        if (!normalizedPath.equals(current.receiveDirectory())) {
+            settingsService.updateSettings(new AppSettings(
+                current.deviceAlias(),
+                current.listeningPort(),
+                normalizedPath,
+                current.requireApproval(),
+                current.verifySha256(),
+                current.autoStartReceiver()
+            ));
+        } else {
+            System.setProperty("syncshare.receiveDir", normalizedPath);
+        }
+    }
+
+    private static String describeStartupError(int port, Throwable error) {
+        if (error instanceof BindException) {
+            return "Port " + port + " is already in use. Stop any conflicting listener or choose another port.";
+        }
+        String message = error.getMessage();
+        return (message != null && !message.isBlank())
+            ? message
+            : "Unable to start receiver on port " + port + ".";
+    }
+
+    private static void closeQuietly(AutoCloseable resource) {
+        if (resource != null) {
+            try {
+                resource.close();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private void updateStatus(ConnectionStatus next) {
+        this.latestStatus = next;
         runOnFxThread(() -> status.set(next));
+    }
+
+    private void updateIncomingSession(IncomingTransferSession next) {
+        this.latestIncomingSession = next;
+        runOnFxThread(() -> incomingSession.set(next));
     }
 
     private static void runOnFxThread(Runnable task) {

@@ -3,19 +3,22 @@ package com.syncshare.transfer;
 
 import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
+import com.syncshare.events.IncomingTransferObserver;
 import com.syncshare.events.TransferListener;
 import com.syncshare.network.Protocol;
 import com.syncshare.network.ProtocolIO;
 import com.syncshare.resume.ResumeStore;
+import com.syncshare.security.TlsSupport;
+import com.syncshare.service.ReceiveDestinationValidator;
 
 import java.io.*;
+import java.net.InetAddress;
 import java.net.Socket;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Objects;
 import java.util.Scanner;
-
-import com.syncshare.security.TlsSupport;
+import java.util.UUID;
 
 public class FileReceiver {
 
@@ -38,11 +41,41 @@ public class FileReceiver {
             TransferListener listener,
             ApprovalHandler approvalHandler
     ) throws IOException {
+        receive(socket, listener, approvalHandler, null, null, null);
+    }
+
+    public static void receive(
+            Socket socket,
+            TransferListener listener,
+            ApprovalHandler approvalHandler,
+            Path receiveRootOverride,
+            IncomingTransferObserver observer
+    ) throws IOException {
+        receive(socket, listener, approvalHandler, receiveRootOverride, observer, null);
+    }
+
+    public static void receive(
+            Socket socket,
+            TransferListener listener,
+            ApprovalHandler approvalHandler,
+            Path receiveRootOverride,
+            IncomingTransferObserver observer,
+            String transferId
+    ) throws IOException {
 
         Objects.requireNonNull(socket, "socket");
         Objects.requireNonNull(listener, "listener");
 
+        IncomingTransferObserver effectiveObserver =
+            observer != null ? observer : IncomingTransferObserver.NO_OP;
+        String activeTransferId =
+            (transferId != null && !transferId.isBlank())
+                ? transferId
+                : UUID.randomUUID().toString();
+
         String fileName = "unknown";
+        String senderInfo = formatSenderAddress(socket);
+        Path savedDestination = null;
 
         DataInputStream input = new DataInputStream(
             socket.getInputStream()
@@ -55,7 +88,18 @@ public class FileReceiver {
         try {
 
             String peerId = TlsSupport.authenticate(socket);
+            senderInfo = formatSenderIdentity(
+                senderInfo,
+                TlsSupport.extractPeerSubject(socket),
+                peerId
+            );
             System.out.println("Authenticated sender: " + peerId);
+            final String openedSender = senderInfo;
+            safeObserverCall(() -> effectiveObserver.onConnectionOpened(
+                activeTransferId,
+                openedSender,
+                peerId
+            ));
 
             ProtocolIO.readHeader(input);
             ProtocolIO.expectMessageType(input, Protocol.FILE_OFFER);
@@ -63,6 +107,12 @@ public class FileReceiver {
             String rawName = input.readUTF();
             long fileSize = input.readLong();
             String expectedHash = input.readUTF();
+
+            if (!ReceiveDestinationValidator.isSafeSingleFileName(rawName)) {
+                output.writeByte(Protocol.REJECT);
+                output.flush();
+                throw new IOException("Invalid or unsafe file offer: " + rawName);
+            }
 
             String safeName = rawName.replace('\\', '/');
             safeName = safeName.substring(safeName.lastIndexOf('/') + 1);
@@ -81,6 +131,16 @@ public class FileReceiver {
 
                 throw new IOException("Invalid file offer");
             }
+
+            final String offeredName = safeName;
+            final String offeredSender = senderInfo;
+            safeObserverCall(() -> effectiveObserver.onFileOffered(
+                activeTransferId,
+                offeredName,
+                fileSize,
+                offeredSender,
+                peerId
+            ));
 
             boolean accepted;
 
@@ -102,6 +162,13 @@ public class FileReceiver {
                 }
             }
 
+            final boolean decisionAccepted = accepted;
+            safeObserverCall(() -> effectiveObserver.onApprovalDecision(
+                activeTransferId,
+                offeredName,
+                decisionAccepted
+            ));
+
             output.writeByte(
                 accepted ? Protocol.ACCEPT : Protocol.REJECT
             );
@@ -111,10 +178,19 @@ public class FileReceiver {
                 return;
             }
 
-            Path receiveRoot = Paths.get(
-    System.getProperty("syncshare.receiveDir", "received_files")
-);
-Path folder = receiveRoot.resolve(peerId);
+            Path receiveRoot = receiveRootOverride != null
+                ? receiveRootOverride
+                : Paths.get(
+                    System.getProperty("syncshare.receiveDir", "received_files")
+                );
+            Path normalizedRoot = receiveRoot.toAbsolutePath().normalize();
+            Path folder = normalizedRoot.resolve(peerId).normalize();
+            if (!folder.startsWith(normalizedRoot)
+                    || folder.getParent() == null
+                    || !folder.getParent().equals(normalizedRoot)) {
+                throw new IOException("Unsafe peer destination directory: " + folder);
+            }
+
             try (ResumeStore store = new ResumeStore(
                     folder,
                     safeName,
@@ -132,7 +208,22 @@ Path folder = receiveRoot.resolve(peerId);
                 );
 
                 listener.onStarted(safeName, fileSize);
+                safeObserverCall(() -> effectiveObserver.onStarted(
+                    activeTransferId,
+                    offeredName,
+                    fileSize,
+                    offeredSender,
+                    peerId
+                ));
+
                 listener.onProgress(safeName, expectedOffset, fileSize);
+                final long initialOffset = expectedOffset;
+                safeObserverCall(() -> effectiveObserver.onProgress(
+                    activeTransferId,
+                    offeredName,
+                    initialOffset,
+                    fileSize
+                ));
 
                 byte[] buffer = new byte[Protocol.BUFFER_SIZE];
 
@@ -170,11 +261,19 @@ Path folder = receiveRoot.resolve(peerId);
                         expectedOffset,
                         fileSize
                     );
+                    final long progressOffset = expectedOffset;
+                    safeObserverCall(() -> effectiveObserver.onProgress(
+                        activeTransferId,
+                        offeredName,
+                        progressOffset,
+                        fileSize
+                    ));
                 }
 
                 ProtocolIO.expectMessageType(input, Protocol.COMPLETE);
 
                 Path destination = store.finish();
+                savedDestination = destination;
 
                 output.writeByte(Protocol.VERIFIED);
                 output.flush();
@@ -198,6 +297,15 @@ Path folder = receiveRoot.resolve(peerId);
             } catch (RuntimeException ignored) {
             }
 
+            final String failedName = fileName;
+            final String failedSender = senderInfo;
+            safeObserverCall(() -> effectiveObserver.onError(
+                activeTransferId,
+                failedName,
+                failedSender,
+                e
+            ));
+
             throw e;
         }
 
@@ -207,6 +315,43 @@ Path folder = receiveRoot.resolve(peerId);
             System.err.println(
                 "Completion listener error: " + e.getMessage()
             );
+        }
+
+        final String completedName = fileName;
+        final Path finalSavedPath = savedDestination;
+        safeObserverCall(() -> effectiveObserver.onCompleted(
+            activeTransferId,
+            completedName,
+            finalSavedPath
+        ));
+    }
+
+    private static String formatSenderAddress(Socket socket) {
+        InetAddress address = socket.getInetAddress();
+        if (address == null) {
+            return "unknown";
+        }
+        int port = socket.getPort();
+        return port > 0 ? address.getHostAddress() + ":" + port : address.getHostAddress();
+    }
+
+    private static String formatSenderIdentity(String address, String subject, String peerId) {
+        String shortId = peerId != null && peerId.length() > 12
+            ? peerId.substring(0, 12)
+            : (peerId != null ? peerId : "");
+        if (subject != null && !subject.isBlank()) {
+            return address + " (" + subject + ", " + shortId + ")";
+        }
+        if (!shortId.isBlank()) {
+            return address + " (" + shortId + ")";
+        }
+        return address;
+    }
+
+    private static void safeObserverCall(Runnable call) {
+        try {
+            call.run();
+        } catch (RuntimeException ignored) {
         }
     }
 }
