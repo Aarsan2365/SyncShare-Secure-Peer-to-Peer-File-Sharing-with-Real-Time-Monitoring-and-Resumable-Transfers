@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Runs blocking directory verification, TCP/mTLS socket binding, and listener shutdown on a daemon
  * background thread so the JavaFX Application Thread never blocks.
  */
-public class ReceiveListenerService extends Service<ReceiveListenerService.ActionResult> {
+public final class ReceiveListenerService extends Service<ReceiveListenerService.ActionResult> {
 
     public enum Operation {
         START,
