@@ -37,7 +37,7 @@ public class FileSender {
             Path file,
             TransferListener listener
     ) throws IOException {
-        send(socket, file, listener, UUID.randomUUID().toString(), TransferSessionListener.NO_OP);
+        send(socket, file, listener, UUID.randomUUID().toString(), TransferSessionListener.NO_OP, false);
     }
 
     public static void send(
@@ -46,7 +46,7 @@ public class FileSender {
             String transferId,
             TransferSessionListener sessionListener
     ) throws IOException {
-        send(socket, file, new ConsoleTransferListener(), transferId, sessionListener);
+        send(socket, file, new ConsoleTransferListener(), transferId, sessionListener, true);
     }
 
     public static void send(
@@ -55,6 +55,17 @@ public class FileSender {
             TransferListener listener,
             String transferId,
             TransferSessionListener sessionListener
+    ) throws IOException {
+        send(socket, file, listener, transferId, sessionListener, true);
+    }
+
+    private static void send(
+            Socket socket,
+            Path file,
+            TransferListener listener,
+            String transferId,
+            TransferSessionListener sessionListener,
+            boolean throwOnReject
     ) throws IOException {
 
         Objects.requireNonNull(socket, "socket");
@@ -130,7 +141,17 @@ public class FileSender {
 
             if (response == Protocol.REJECT) {
                 System.out.println("Receiver rejected the file.");
-                throw new IOException("Transfer rejected by receiver");
+                if (throwOnReject) {
+                    throw new IOException("Transfer rejected by receiver");
+                }
+                safeSessionCall(() -> effectiveSession.onFailed(
+                    effectiveId,
+                    TransferDirection.OUTGOING,
+                    fileName,
+                    "Transfer rejected by receiver",
+                    null
+                ));
+                return;
             }
 
             if (response != Protocol.ACCEPT) {

@@ -77,8 +77,8 @@ public final class SyncShareServices {
         DeviceInfoService deviceInfo = new DeviceInfoService(settings);
         TransferMonitoringService monitoring = new TransferMonitoringService();
         HistoryService history = createDefaultHistoryService(settings, monitoring);
-        ConnectionService connection = new ConnectionService(settings, deviceInfo, monitoring);
         TransferService transfers = new TransferService(monitoring);
+        ConnectionService connection = new ConnectionService(settings, deviceInfo, transfers, monitoring);
         return new SyncShareServices(settings, deviceInfo, connection, transfers, monitoring, history);
     }
 

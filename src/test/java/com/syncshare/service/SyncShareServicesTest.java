@@ -1,8 +1,13 @@
 package com.syncshare.service;
 
+import com.syncshare.history.JsonTransferHistoryRepository;
+import com.syncshare.history.TransferHistoryDirection;
+import com.syncshare.history.TransferHistoryStatus;
+import com.syncshare.history.TransferRecord;
 import com.syncshare.model.AppSettings;
 import com.syncshare.model.ConnectionState;
 import com.syncshare.model.LocalDeviceInfo;
+import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
 import com.syncshare.ui.JavaFxToolkitExtension;
@@ -13,12 +18,15 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(JavaFxToolkitExtension.class)
@@ -139,6 +147,99 @@ class SyncShareServicesTest {
             assertTrue(failed.note().contains("Connection refused"));
         } finally {
             failingService.shutdown();
+        }
+    }
+
+    @Test
+    void createDefaultWiresSharedMonitoringAndHistoryAcrossRestartAndShutdown() throws Exception {
+        Path historyFile = tempDir.resolve("default-services-history.json");
+        String previousProp = System.getProperty(JsonTransferHistoryRepository.PROP_HISTORY_FILE);
+        System.setProperty(JsonTransferHistoryRepository.PROP_HISTORY_FILE, historyFile.toString());
+
+        SyncShareServices firstSession = null;
+        SyncShareServices restartedSession = null;
+        try {
+            firstSession = SyncShareServices.createDefault();
+            assertNotNull(firstSession.historyService());
+            assertSame(
+                firstSession.transferMonitoringService(),
+                firstSession.transferService().getMonitoringService(),
+                "TransferService must share SyncShareServices monitoring instance"
+            );
+            assertEquals(
+                1,
+                firstSession.transferMonitoringService().terminalListenerCount(),
+                "HistoryService must subscribe once to shared TransferMonitoringService"
+            );
+            assertTrue(firstSession.historyService().awaitPendingIo(5, TimeUnit.SECONDS));
+
+            // Outgoing monitored transfer completion
+            firstSession.transferMonitoringService().onStarted(
+                "tx-default-out",
+                TransferDirection.OUTGOING,
+                "release-notes.pdf",
+                4096L,
+                0L,
+                "127.0.0.1:5050"
+            );
+            firstSession.transferMonitoringService().onCompleted(
+                "tx-default-out",
+                TransferDirection.OUTGOING,
+                "release-notes.pdf"
+            );
+
+            // Incoming completion routed through TransferService -> ConnectionService wiring
+            TransferItem incomingDone = new TransferItem(
+                "tx-default-in",
+                "backup-image.tar",
+                8192L,
+                8192L,
+                TransferDirection.INCOMING,
+                TransferStatus.COMPLETED,
+                "127.0.0.1:6060",
+                "SHA-256 verified",
+                Instant.now(),
+                "Verified and saved"
+            );
+            firstSession.transferService().moveToHistory(incomingDone);
+            assertTrue(firstSession.historyService().awaitPendingIo(5, TimeUnit.SECONDS));
+
+            firstSession.shutdown();
+            assertEquals(0, firstSession.transferMonitoringService().terminalListenerCount());
+            firstSession = null;
+
+            restartedSession = SyncShareServices.createDefault();
+            assertTrue(restartedSession.historyService().awaitPendingIo(5, TimeUnit.SECONDS));
+            List<TransferRecord> reloaded = restartedSession.historyService().getSnapshot();
+            assertEquals(2, reloaded.size());
+            assertEquals(
+                1,
+                reloaded.stream()
+                    .filter(r -> "tx-default-out".equals(r.transferId())
+                        && r.direction() == TransferHistoryDirection.SEND
+                        && r.status() == TransferHistoryStatus.COMPLETED)
+                    .count()
+            );
+            assertEquals(
+                1,
+                reloaded.stream()
+                    .filter(r -> "tx-default-in".equals(r.transferId())
+                        && r.direction() == TransferHistoryDirection.RECEIVE
+                        && r.status() == TransferHistoryStatus.COMPLETED)
+                    .count()
+            );
+        } finally {
+            if (firstSession != null) {
+                firstSession.shutdown();
+            }
+            if (restartedSession != null) {
+                restartedSession.shutdown();
+            }
+            if (previousProp == null) {
+                System.clearProperty(JsonTransferHistoryRepository.PROP_HISTORY_FILE);
+            } else {
+                System.setProperty(JsonTransferHistoryRepository.PROP_HISTORY_FILE, previousProp);
+            }
         }
     }
 }
