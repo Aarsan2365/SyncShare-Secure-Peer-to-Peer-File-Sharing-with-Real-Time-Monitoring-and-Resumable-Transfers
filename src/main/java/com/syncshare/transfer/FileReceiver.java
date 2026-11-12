@@ -5,15 +5,22 @@ import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
 import com.syncshare.events.IncomingTransferObserver;
 import com.syncshare.events.TransferListener;
+import com.syncshare.events.TransferSessionListener;
+import com.syncshare.model.TransferDirection;
 import com.syncshare.network.Protocol;
 import com.syncshare.network.ProtocolIO;
 import com.syncshare.resume.ResumeStore;
 import com.syncshare.security.TlsSupport;
 import com.syncshare.service.ReceiveDestinationValidator;
 
-import java.io.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Objects;
@@ -41,7 +48,17 @@ public class FileReceiver {
             TransferListener listener,
             ApprovalHandler approvalHandler
     ) throws IOException {
-        receive(socket, listener, approvalHandler, null, null, null);
+        receive(socket, listener, approvalHandler, null, null, null, null);
+    }
+
+    public static void receive(
+            Socket socket,
+            TransferListener listener,
+            ApprovalHandler approvalHandler,
+            String transferId,
+            TransferSessionListener sessionListener
+    ) throws IOException {
+        receive(socket, listener, approvalHandler, null, null, transferId, sessionListener);
     }
 
     public static void receive(
@@ -51,7 +68,7 @@ public class FileReceiver {
             Path receiveRootOverride,
             IncomingTransferObserver observer
     ) throws IOException {
-        receive(socket, listener, approvalHandler, receiveRootOverride, observer, null);
+        receive(socket, listener, approvalHandler, receiveRootOverride, observer, null, null);
     }
 
     public static void receive(
@@ -62,19 +79,33 @@ public class FileReceiver {
             IncomingTransferObserver observer,
             String transferId
     ) throws IOException {
+        receive(socket, listener, approvalHandler, receiveRootOverride, observer, transferId, null);
+    }
+
+    public static void receive(
+            Socket socket,
+            TransferListener listener,
+            ApprovalHandler approvalHandler,
+            Path receiveRootOverride,
+            IncomingTransferObserver observer,
+            String transferId,
+            TransferSessionListener sessionListener
+    ) throws IOException {
 
         Objects.requireNonNull(socket, "socket");
         Objects.requireNonNull(listener, "listener");
 
+        String activeTransferId = (transferId != null && !transferId.isBlank())
+            ? transferId
+            : UUID.randomUUID().toString();
         IncomingTransferObserver effectiveObserver =
             observer != null ? observer : IncomingTransferObserver.NO_OP;
-        String activeTransferId =
-            (transferId != null && !transferId.isBlank())
-                ? transferId
-                : UUID.randomUUID().toString();
+        TransferSessionListener effectiveSession =
+            sessionListener != null ? sessionListener : TransferSessionListener.NO_OP;
 
         String fileName = "unknown";
         String senderInfo = formatSenderAddress(socket);
+        String peerEndpoint = formatPeerEndpoint(socket);
         Path savedDestination = null;
 
         DataInputStream input = new DataInputStream(
@@ -85,7 +116,19 @@ public class FileReceiver {
             socket.getOutputStream()
         );
 
+        safeCall(() -> effectiveSession.onConnecting(
+            activeTransferId,
+            TransferDirection.INCOMING,
+            "Incoming file",
+            -1L,
+            peerEndpoint,
+            "Authenticating sender (mTLS 1.3)"
+        ));
+
         try {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedIOException("Incoming transfer cancelled before authentication");
+            }
 
             String peerId = TlsSupport.authenticate(socket);
             senderInfo = formatSenderIdentity(
@@ -95,7 +138,7 @@ public class FileReceiver {
             );
             System.out.println("Authenticated sender: " + peerId);
             final String openedSender = senderInfo;
-            safeObserverCall(() -> effectiveObserver.onConnectionOpened(
+            safeCall(() -> effectiveObserver.onConnectionOpened(
                 activeTransferId,
                 openedSender,
                 peerId
@@ -134,12 +177,20 @@ public class FileReceiver {
 
             final String offeredName = safeName;
             final String offeredSender = senderInfo;
-            safeObserverCall(() -> effectiveObserver.onFileOffered(
+            safeCall(() -> effectiveObserver.onFileOffered(
                 activeTransferId,
                 offeredName,
                 fileSize,
                 offeredSender,
                 peerId
+            ));
+            safeCall(() -> effectiveSession.onConnecting(
+                activeTransferId,
+                TransferDirection.INCOMING,
+                offeredName,
+                fileSize,
+                peerEndpoint,
+                "Awaiting local approval"
             ));
 
             boolean accepted;
@@ -163,7 +214,7 @@ public class FileReceiver {
             }
 
             final boolean decisionAccepted = accepted;
-            safeObserverCall(() -> effectiveObserver.onApprovalDecision(
+            safeCall(() -> effectiveObserver.onApprovalDecision(
                 activeTransferId,
                 offeredName,
                 decisionAccepted
@@ -175,6 +226,14 @@ public class FileReceiver {
             output.flush();
 
             if (!accepted) {
+                IOException rejectedError = new IOException("Incoming transfer rejected locally");
+                safeCall(() -> effectiveSession.onFailed(
+                    activeTransferId,
+                    TransferDirection.INCOMING,
+                    offeredName,
+                    "Rejected locally",
+                    rejectedError
+                ));
                 return;
             }
 
@@ -208,7 +267,7 @@ public class FileReceiver {
                 );
 
                 listener.onStarted(safeName, fileSize);
-                safeObserverCall(() -> effectiveObserver.onStarted(
+                safeCall(() -> effectiveObserver.onStarted(
                     activeTransferId,
                     offeredName,
                     fileSize,
@@ -216,18 +275,38 @@ public class FileReceiver {
                     peerId
                 ));
 
+                final long startOffset = expectedOffset;
+                safeCall(() -> effectiveSession.onStarted(
+                    activeTransferId,
+                    TransferDirection.INCOMING,
+                    offeredName,
+                    fileSize,
+                    startOffset,
+                    peerEndpoint
+                ));
+
                 listener.onProgress(safeName, expectedOffset, fileSize);
-                final long initialOffset = expectedOffset;
-                safeObserverCall(() -> effectiveObserver.onProgress(
+                safeCall(() -> effectiveObserver.onProgress(
                     activeTransferId,
                     offeredName,
-                    initialOffset,
+                    startOffset,
+                    fileSize
+                ));
+                safeCall(() -> effectiveSession.onProgress(
+                    activeTransferId,
+                    TransferDirection.INCOMING,
+                    offeredName,
+                    startOffset,
                     fileSize
                 ));
 
                 byte[] buffer = new byte[Protocol.BUFFER_SIZE];
 
                 while (expectedOffset < fileSize) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedIOException("Incoming transfer cancelled");
+                    }
+
                     ProtocolIO.expectMessageType(
                         input,
                         Protocol.FILE_CHUNK
@@ -262,8 +341,15 @@ public class FileReceiver {
                         fileSize
                     );
                     final long progressOffset = expectedOffset;
-                    safeObserverCall(() -> effectiveObserver.onProgress(
+                    safeCall(() -> effectiveObserver.onProgress(
                         activeTransferId,
+                        offeredName,
+                        progressOffset,
+                        fileSize
+                    ));
+                    safeCall(() -> effectiveSession.onProgress(
+                        activeTransferId,
+                        TransferDirection.INCOMING,
                         offeredName,
                         progressOffset,
                         fileSize
@@ -299,7 +385,24 @@ public class FileReceiver {
 
             final String failedName = fileName;
             final String failedSender = senderInfo;
-            safeObserverCall(() -> effectiveObserver.onError(
+            if (Thread.currentThread().isInterrupted()) {
+                safeCall(() -> effectiveSession.onCancelled(
+                    activeTransferId,
+                    TransferDirection.INCOMING,
+                    failedName,
+                    e.getMessage() != null ? e.getMessage() : "Incoming transfer cancelled"
+                ));
+            } else {
+                String reason = e.getMessage() != null ? e.getMessage() : "Incoming transfer failed";
+                safeCall(() -> effectiveSession.onFailed(
+                    activeTransferId,
+                    TransferDirection.INCOMING,
+                    failedName,
+                    reason,
+                    e
+                ));
+            }
+            safeCall(() -> effectiveObserver.onError(
                 activeTransferId,
                 failedName,
                 failedSender,
@@ -319,7 +422,12 @@ public class FileReceiver {
 
         final String completedName = fileName;
         final Path finalSavedPath = savedDestination;
-        safeObserverCall(() -> effectiveObserver.onCompleted(
+        safeCall(() -> effectiveSession.onCompleted(
+            activeTransferId,
+            TransferDirection.INCOMING,
+            completedName
+        ));
+        safeCall(() -> effectiveObserver.onCompleted(
             activeTransferId,
             completedName,
             finalSavedPath
@@ -348,9 +456,25 @@ public class FileReceiver {
         return address;
     }
 
-    private static void safeObserverCall(Runnable call) {
+    private static String formatPeerEndpoint(Socket socket) {
+        SocketAddress remote = socket.getRemoteSocketAddress();
+        if (remote instanceof InetSocketAddress inet) {
+            String host = inet.getAddress() != null
+                ? inet.getAddress().getHostAddress()
+                : inet.getHostString();
+            return inet.getPort() > 0 ? host + ":" + inet.getPort() : host;
+        }
+        if (socket.getInetAddress() != null) {
+            int port = socket.getPort();
+            String host = socket.getInetAddress().getHostAddress();
+            return port > 0 ? host + ":" + port : host;
+        }
+        return "unknown";
+    }
+
+    private static void safeCall(Runnable action) {
         try {
-            call.run();
+            action.run();
         } catch (RuntimeException ignored) {
         }
     }

@@ -4,6 +4,8 @@ import com.syncshare.events.ConsoleTransferListener;
 import com.syncshare.events.TransferListener;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
+import com.syncshare.monitoring.MonitoredTransfer;
+import com.syncshare.monitoring.TransferMonitorState;
 import com.syncshare.transfer.FileReceiver;
 import com.syncshare.transfer.FileSender;
 import com.syncshare.ui.JavaFxToolkitExtension;
@@ -314,7 +316,7 @@ class SendFilesServiceTest {
                 assertEquals(0, gateway.getActiveTransfers().size());
                 assertEquals(1, gateway.getTransferHistory().size());
                 TransferItem cancelledItem = gateway.getTransferHistory().get(0);
-                assertEquals(TransferStatus.FAILED, cancelledItem.status());
+                assertEquals(TransferStatus.CANCELLED, cancelledItem.status());
                 assertEquals("Cancelled by user", cancelledItem.note());
             });
         } finally {
@@ -467,6 +469,12 @@ class SendFilesServiceTest {
                 () -> false
             );
             assertEquals(TransferStatus.REJECTED, rejected.status());
+
+            MonitoredTransfer okMonitored = transferService.getMonitoringService().getTransfer("mtls-ok").orElseThrow();
+            assertEquals(TransferMonitorState.COMPLETED, okMonitored.state());
+            assertEquals(payload.length, okMonitored.transferredBytes());
+            MonitoredTransfer rejectedMonitored = transferService.getMonitoringService().getTransfer("mtls-reject").orElseThrow();
+            assertEquals(TransferMonitorState.FAILED, rejectedMonitored.state());
         } finally {
             transferService.shutdown();
             if (previousReceiveDir == null) {
@@ -474,6 +482,77 @@ class SendFilesServiceTest {
             } else {
                 System.setProperty("syncshare.receiveDir", previousReceiveDir);
             }
+        }
+    }
+
+    @Test
+    void sendFileBlockingEmitsMonitoringEventsAndSupportsMonitoringCancellation() throws Throwable {
+        Path payload = tempDir.resolve("monitored-blocking.bin");
+        Files.write(payload, new byte[4096]);
+
+        TransferMonitoringService monitoring = new TransferMonitoringService(System::nanoTime, 0L, false);
+        CountDownLatch inFlightLatch = new CountDownLatch(1);
+        CountDownLatch releaseLatch = new CountDownLatch(1);
+        AtomicBoolean workerInterrupted = new AtomicBoolean(false);
+
+        TransferService gateway = new TransferService((host, port, file, listener) -> {
+            listener.onStarted(file.getFileName().toString(), 4096L);
+            listener.onProgress(file.getFileName().toString(), 2048L, 4096L);
+            inFlightLatch.countDown();
+            try {
+                releaseLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                workerInterrupted.set(true);
+                throw e;
+            }
+        }, monitoring);
+
+        try {
+            AtomicReference<TransferItem> resultRef = new AtomicReference<>();
+            AtomicReference<Throwable> errorRef = new AtomicReference<>();
+            Thread senderWorker = new Thread(() -> {
+                try {
+                    resultRef.set(gateway.sendFileBlocking(
+                        "tx-blocking-mon",
+                        "127.0.0.1",
+                        5050,
+                        payload,
+                        null,
+                        () -> false
+                    ));
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                }
+            }, "test-blocking-mon");
+            senderWorker.start();
+
+            assertTrue(inFlightLatch.await(5, TimeUnit.SECONDS));
+            MonitoredTransfer active = monitoring.getTransfer("tx-blocking-mon").orElseThrow();
+            assertEquals(TransferMonitorState.RUNNING, active.state());
+            assertEquals(2048L, active.transferredBytes());
+
+            // Cancel via TransferMonitoringService cancel handler
+            assertTrue(monitoring.cancelTransfer("tx-blocking-mon"));
+
+            senderWorker.join(5_000);
+            assertFalse(senderWorker.isAlive());
+            assertTrue(workerInterrupted.get());
+            if (errorRef.get() != null) {
+                throw errorRef.get();
+            }
+            assertNotNull(resultRef.get());
+            assertEquals(TransferStatus.CANCELLED, resultRef.get().status());
+
+            MonitoredTransfer terminal = monitoring.getTransfer("tx-blocking-mon").orElseThrow();
+            assertEquals(TransferMonitorState.CANCELLED, terminal.state());
+            JavaFxToolkitExtension.runOnFxThread(() -> {
+                assertEquals(0, gateway.getActiveTransfers().size());
+                assertEquals(1, gateway.getTransferHistory().size());
+                assertEquals(TransferStatus.CANCELLED, gateway.getTransferHistory().get(0).status());
+            });
+        } finally {
+            releaseLatch.countDown();
+            gateway.shutdown();
         }
     }
 

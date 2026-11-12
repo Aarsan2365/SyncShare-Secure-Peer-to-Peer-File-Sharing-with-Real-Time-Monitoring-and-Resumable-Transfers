@@ -5,10 +5,13 @@ import com.syncshare.model.ConnectionStatus;
 import com.syncshare.model.LocalDeviceInfo;
 import com.syncshare.model.NavItemId;
 import com.syncshare.model.TransferItem;
+import com.syncshare.monitoring.MonitoredTransfer;
+import com.syncshare.monitoring.TransferMonitorListener;
+import com.syncshare.monitoring.TransferMonitorState;
 import com.syncshare.service.ConnectionService;
 import com.syncshare.service.DeviceInfoService;
 import com.syncshare.service.SyncShareServices;
-import com.syncshare.service.TransferService;
+import com.syncshare.service.TransferMonitoringService;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.EmptyStatePane;
 import com.syncshare.ui.design.FeedbackBanner;
@@ -20,7 +23,6 @@ import com.syncshare.ui.design.UiCard;
 import com.syncshare.ui.design.UiIcons;
 import com.syncshare.ui.navigation.NavigationAware;
 import com.syncshare.ui.navigation.ViewNavigator;
-import javafx.collections.ListChangeListener;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -101,6 +103,9 @@ public class DashboardController implements NavigationAware {
     private StatusBadge recentSummaryBadge;
     private VBox recentSummaryContent;
 
+    private AutoCloseable monitorSubscription;
+    private TransferMonitorListener monitorListener;
+
     private boolean initializedContext;
 
     @FXML
@@ -129,6 +134,22 @@ public class DashboardController implements NavigationAware {
             services.connectionService().refreshStatus();
             refreshAll();
         }
+    }
+
+    @Override
+    public void dispose() {
+        if (monitorSubscription != null) {
+            try {
+                monitorSubscription.close();
+            } catch (Exception ignored) {
+            }
+            monitorSubscription = null;
+        }
+        if (services != null && monitorListener != null) {
+            services.transferMonitoringService().removeListener(monitorListener);
+        }
+        monitorListener = null;
+        initializedContext = false;
     }
 
     private void buildLayout() {
@@ -525,16 +546,12 @@ public class DashboardController implements NavigationAware {
     private void bindToServices() {
         DeviceInfoService deviceService = services.deviceInfoService();
         ConnectionService connectionService = services.connectionService();
-        TransferService transferService = services.transferService();
+        TransferMonitoringService monitoringService = services.transferMonitoringService();
 
         deviceService.deviceInfoProperty().addListener((obs, oldVal, newVal) -> updateDeviceInfo(newVal));
         connectionService.statusProperty().addListener((obs, oldVal, newVal) -> updateConnectionStatus(newVal));
-        transferService.getActiveTransfers().addListener(
-            (ListChangeListener<TransferItem>) change -> updateTransferSummaries()
-        );
-        transferService.getTransferHistory().addListener(
-            (ListChangeListener<TransferItem>) change -> updateTransferSummaries()
-        );
+        monitorListener = (active, recent) -> updateTransferSummaries(active, recent);
+        monitorSubscription = monitoringService.subscribe(monitorListener);
     }
 
     private void refreshAll() {
@@ -543,7 +560,8 @@ public class DashboardController implements NavigationAware {
         }
         updateDeviceInfo(services.deviceInfoService().getDeviceInfo());
         updateConnectionStatus(services.connectionService().getStatus());
-        updateTransferSummaries();
+        TransferMonitoringService monitoringService = services.transferMonitoringService();
+        updateTransferSummaries(monitoringService.getActiveTransfers(), monitoringService.getRecentTransfers());
     }
 
     private void updateConnectionStatus(ConnectionStatus status) {
@@ -588,30 +606,38 @@ public class DashboardController implements NavigationAware {
         deviceTlsBadge.setTone(info.tlsConfigured() ? SemanticTone.SUCCESS : SemanticTone.WARNING);
     }
 
-    private void updateTransferSummaries() {
+    private void updateTransferSummaries(List<MonitoredTransfer> active, List<MonitoredTransfer> recent) {
         if (services == null) {
             return;
         }
-        TransferService transferService = services.transferService();
-        List<TransferItem> active = transferService.getActiveTransfers();
-        List<TransferItem> history = transferService.getTransferHistory();
+        TransferMonitoringService monitoringService = services.transferMonitoringService();
+        List<MonitoredTransfer> safeActive = active != null ? active : monitoringService.getActiveTransfers();
+        List<MonitoredTransfer> safeRecent = recent != null ? recent : monitoringService.getRecentTransfers();
 
-        int activeCount = active.size();
+        int activeCount = safeActive.size();
         activeMetricValueLabel.setText(activeCount + " Active");
         activeMetricBadge.setText(activeCount > 0 ? "Streaming" : "Idle");
         activeMetricBadge.setTone(activeCount > 0 ? SemanticTone.TEAL : SemanticTone.NEUTRAL);
         if (activeCount > 0) {
-            int pct = (int) Math.round(transferService.averageActiveProgressProperty().get() * 100.0);
+            double sum = 0.0;
+            int counted = 0;
+            for (MonitoredTransfer item : safeActive) {
+                if (item.progress() >= 0.0) {
+                    sum += item.progress();
+                    counted++;
+                }
+            }
+            int pct = counted > 0 ? (int) Math.round((sum / counted) * 100.0) : 0;
             activeMetricDetailLabel.setText("Average progress " + pct + "% across active queue");
         } else {
             activeMetricDetailLabel.setText("No transfers currently streaming");
         }
 
-        int completedCount = transferService.completedCountProperty().get();
-        int failedCount = transferService.failedCountProperty().get();
-        long totalBytes = transferService.totalBytesTransferredProperty().get();
+        int completedCount = monitoringService.completedCountProperty().get();
+        int failedCount = monitoringService.failedCountProperty().get();
+        long totalBytes = monitoringService.totalTransferredBytesProperty().get();
         historyMetricValueLabel.setText(completedCount + " Verified");
-        historyMetricBadge.setText(history.isEmpty() ? "Empty" : history.size() + " Total");
+        historyMetricBadge.setText(safeRecent.isEmpty() ? "Empty" : safeRecent.size() + " Total");
         historyMetricBadge.setTone(
             failedCount > 0 ? SemanticTone.WARNING : (completedCount > 0 ? SemanticTone.SUCCESS : SemanticTone.NEUTRAL)
         );
@@ -619,11 +645,11 @@ public class DashboardController implements NavigationAware {
             TransferItem.formatByteCount(totalBytes) + " processed • " + failedCount + " failed"
         );
 
-        renderActiveSummaryContent(active);
-        renderRecentSummaryContent(history);
+        renderActiveSummaryContent(safeActive);
+        renderRecentSummaryContent(safeRecent);
     }
 
-    private void renderActiveSummaryContent(List<TransferItem> active) {
+    private void renderActiveSummaryContent(List<MonitoredTransfer> active) {
         activeSummaryBadge.setText(active.size() + " Active");
         activeSummaryBadge.setTone(active.isEmpty() ? SemanticTone.NEUTRAL : SemanticTone.TEAL);
 
@@ -642,12 +668,12 @@ public class DashboardController implements NavigationAware {
         activeSummaryContent.getChildren().clear();
         int limit = Math.min(4, active.size());
         for (int i = 0; i < limit; i++) {
-            TransferItem item = active.get(i);
+            MonitoredTransfer item = active.get(i);
             activeSummaryContent.getChildren().add(createActiveSummaryRow(item));
         }
     }
 
-    private void renderRecentSummaryContent(List<TransferItem> history) {
+    private void renderRecentSummaryContent(List<MonitoredTransfer> history) {
         recentSummaryBadge.setText(history.size() + (history.size() == 1 ? " Item" : " Items"));
         recentSummaryBadge.setTone(history.isEmpty() ? SemanticTone.NEUTRAL : SemanticTone.INFO);
 
@@ -666,12 +692,12 @@ public class DashboardController implements NavigationAware {
         recentSummaryContent.getChildren().clear();
         int limit = Math.min(5, history.size());
         for (int i = 0; i < limit; i++) {
-            TransferItem item = history.get(i);
+            MonitoredTransfer item = history.get(i);
             recentSummaryContent.getChildren().add(createRecentSummaryRow(item));
         }
     }
 
-    private VBox createActiveSummaryRow(TransferItem item) {
+    private VBox createActiveSummaryRow(MonitoredTransfer item) {
         VBox row = new VBox(6);
         row.getStyleClass().add("transfer-summary-row");
 
@@ -684,22 +710,25 @@ public class DashboardController implements NavigationAware {
         title.setMinWidth(0);
         HBox.setHgrow(title, Priority.ALWAYS);
 
-        StatusBadge badge = new StatusBadge(item.status().displayName(), item.status().tone());
+        StatusBadge badge = new StatusBadge(item.state().displayName(), item.state().tone());
         badge.setCompact(true);
         top.getChildren().addAll(title, badge);
 
+        String detail = item.formattedTransferred()
+            + " • " + item.formattedSpeed()
+            + " • ETA " + item.formattedEta();
         LabeledProgressBar progressBar = new LabeledProgressBar(
             item.direction().label() + " • " + item.peerAddress(),
             item.progress(),
-            item.status().tone()
+            item.state().tone()
         ).setSize(LabeledProgressBar.Size.SM)
-         .setDetail(item.formattedProgressDetail());
+         .setDetail(detail);
 
         row.getChildren().addAll(top, progressBar);
         return row;
     }
 
-    private HBox createRecentSummaryRow(TransferItem item) {
+    private HBox createRecentSummaryRow(MonitoredTransfer item) {
         HBox row = new HBox(DesignSystem.SPACE_SM);
         row.getStyleClass().add("transfer-summary-row");
         row.setAlignment(Pos.CENTER_LEFT);
@@ -712,15 +741,19 @@ public class DashboardController implements NavigationAware {
         title.getStyleClass().add("transfer-summary-title");
         title.setWrapText(true);
 
+        String timestamp = item.completedAt() != null ? item.formattedCompletedAt() : item.formattedStartedAt();
+        String diagnostic = item.state() == TransferMonitorState.FAILED && !item.errorMessage().isBlank()
+            ? " • " + item.errorMessage()
+            : "";
         Label meta = new Label(
             item.direction().label() + " • " + item.peerAddress()
-                + " • " + item.formattedSize() + " • " + item.formattedTimestamp()
+                + " • " + item.formattedTotalSize() + " • " + timestamp + diagnostic
         );
         meta.getStyleClass().add("transfer-summary-meta");
         meta.setWrapText(true);
         info.getChildren().addAll(title, meta);
 
-        StatusBadge badge = new StatusBadge(item.status().displayName(), item.status().tone(), StatusBadge.IndicatorMode.ICON);
+        StatusBadge badge = new StatusBadge(item.state().displayName(), item.state().tone(), StatusBadge.IndicatorMode.ICON);
         badge.setCompact(true);
 
         row.getChildren().addAll(info, badge);

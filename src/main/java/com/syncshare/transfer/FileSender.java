@@ -3,17 +3,25 @@ package com.syncshare.transfer;
 
 import com.syncshare.events.ConsoleTransferListener;
 import com.syncshare.events.TransferListener;
+import com.syncshare.events.TransferSessionListener;
+import com.syncshare.model.TransferDirection;
 import com.syncshare.network.Protocol;
 import com.syncshare.network.ProtocolIO;
+import com.syncshare.security.TlsSupport;
 
-
-import java.io.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InterruptedIOException;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-
-import com.syncshare.security.TlsSupport;
+import java.util.UUID;
 
 public class FileSender {
 
@@ -29,14 +37,64 @@ public class FileSender {
             Path file,
             TransferListener listener
     ) throws IOException {
+        send(socket, file, listener, UUID.randomUUID().toString(), TransferSessionListener.NO_OP, false);
+    }
+
+    public static void send(
+            Socket socket,
+            Path file,
+            String transferId,
+            TransferSessionListener sessionListener
+    ) throws IOException {
+        send(socket, file, new ConsoleTransferListener(), transferId, sessionListener, true);
+    }
+
+    public static void send(
+            Socket socket,
+            Path file,
+            TransferListener listener,
+            String transferId,
+            TransferSessionListener sessionListener
+    ) throws IOException {
+        send(socket, file, listener, transferId, sessionListener, true);
+    }
+
+    private static void send(
+            Socket socket,
+            Path file,
+            TransferListener listener,
+            String transferId,
+            TransferSessionListener sessionListener,
+            boolean throwOnReject
+    ) throws IOException {
 
         Objects.requireNonNull(socket, "socket");
         Objects.requireNonNull(file, "file");
         Objects.requireNonNull(listener, "listener");
+        String effectiveId = (transferId != null && !transferId.isBlank())
+            ? transferId
+            : UUID.randomUUID().toString();
+        TransferSessionListener effectiveSession = sessionListener != null
+            ? sessionListener
+            : TransferSessionListener.NO_OP;
 
-        String fileName = file.getFileName().toString();
+        String fileName = file.getFileName() != null ? file.getFileName().toString() : file.toString();
+        String peerEndpoint = formatPeerEndpoint(socket);
+        long initialKnownSize = resolveFileSizeQuietly(file);
+
+        safeSessionCall(() -> effectiveSession.onConnecting(
+            effectiveId,
+            TransferDirection.OUTGOING,
+            fileName,
+            initialKnownSize,
+            peerEndpoint,
+            "Authenticating peer (mTLS 1.3)"
+        ));
 
         try {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedIOException("Transfer cancelled before authentication");
+            }
 
             String peerId = TlsSupport.authenticate(socket);
             System.out.println("Authenticated receiver: " + peerId);
@@ -70,11 +128,29 @@ public class FileSender {
             output.flush();
 
             System.out.println("Waiting for receiver approval...");
+            safeSessionCall(() -> effectiveSession.onConnecting(
+                effectiveId,
+                TransferDirection.OUTGOING,
+                fileName,
+                fileSize,
+                peerEndpoint,
+                "Waiting for receiver approval"
+            ));
 
             byte response = input.readByte();
 
             if (response == Protocol.REJECT) {
                 System.out.println("Receiver rejected the file.");
+                if (throwOnReject) {
+                    throw new IOException("Transfer rejected by receiver");
+                }
+                safeSessionCall(() -> effectiveSession.onFailed(
+                    effectiveId,
+                    TransferDirection.OUTGOING,
+                    fileName,
+                    "Transfer rejected by receiver",
+                    null
+                ));
                 return;
             }
 
@@ -107,6 +183,22 @@ public class FileSender {
 
             listener.onStarted(fileName, fileSize);
             listener.onProgress(fileName, resumeOffset, fileSize);
+            final long startOffset = resumeOffset;
+            safeSessionCall(() -> effectiveSession.onStarted(
+                effectiveId,
+                TransferDirection.OUTGOING,
+                fileName,
+                fileSize,
+                startOffset,
+                peerEndpoint
+            ));
+            safeSessionCall(() -> effectiveSession.onProgress(
+                effectiveId,
+                TransferDirection.OUTGOING,
+                fileName,
+                startOffset,
+                fileSize
+            ));
 
             long offset = resumeOffset;
 
@@ -117,6 +209,10 @@ public class FileSender {
                 byte[] buffer = new byte[Protocol.BUFFER_SIZE];
 
                 while (offset < fileSize) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new InterruptedIOException("Transfer cancelled");
+                    }
+
                     int requested = (int) Math.min(
                         buffer.length,
                         fileSize - offset
@@ -169,6 +265,14 @@ public class FileSender {
                         offset,
                         fileSize
                     );
+                    final long acked = offset;
+                    safeSessionCall(() -> effectiveSession.onProgress(
+                        effectiveId,
+                        TransferDirection.OUTGOING,
+                        fileName,
+                        acked,
+                        fileSize
+                    ));
                 }
             }
 
@@ -193,6 +297,24 @@ public class FileSender {
             } catch (RuntimeException ignored) {
             }
 
+            if (Thread.currentThread().isInterrupted()) {
+                safeSessionCall(() -> effectiveSession.onCancelled(
+                    effectiveId,
+                    TransferDirection.OUTGOING,
+                    fileName,
+                    e.getMessage() != null ? e.getMessage() : "Transfer cancelled"
+                ));
+            } else {
+                String reason = e.getMessage() != null ? e.getMessage() : "Outgoing transfer failed";
+                safeSessionCall(() -> effectiveSession.onFailed(
+                    effectiveId,
+                    TransferDirection.OUTGOING,
+                    fileName,
+                    reason,
+                    e
+                ));
+            }
+
             throw e;
         }
 
@@ -202,6 +324,45 @@ public class FileSender {
             System.err.println(
                 "Completion listener error: " + e.getMessage()
             );
+        }
+
+        safeSessionCall(() -> effectiveSession.onCompleted(
+            effectiveId,
+            TransferDirection.OUTGOING,
+            fileName
+        ));
+    }
+
+    private static long resolveFileSizeQuietly(Path file) {
+        try {
+            if (Files.isRegularFile(file)) {
+                return Files.size(file);
+            }
+        } catch (IOException ignored) {
+        }
+        return -1L;
+    }
+
+    private static String formatPeerEndpoint(Socket socket) {
+        SocketAddress remote = socket.getRemoteSocketAddress();
+        if (remote instanceof InetSocketAddress inet) {
+            String host = inet.getAddress() != null
+                ? inet.getAddress().getHostAddress()
+                : inet.getHostString();
+            return inet.getPort() > 0 ? host + ":" + inet.getPort() : host;
+        }
+        if (socket.getInetAddress() != null) {
+            int port = socket.getPort();
+            String host = socket.getInetAddress().getHostAddress();
+            return port > 0 ? host + ":" + port : host;
+        }
+        return "unknown";
+    }
+
+    private static void safeSessionCall(Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException ignored) {
         }
     }
 }

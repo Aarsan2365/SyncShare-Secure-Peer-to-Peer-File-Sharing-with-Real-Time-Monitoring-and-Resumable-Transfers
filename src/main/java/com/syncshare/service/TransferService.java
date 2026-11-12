@@ -1,6 +1,7 @@
 package com.syncshare.service;
 
 import com.syncshare.events.TransferListener;
+import com.syncshare.events.TransferSessionListener;
 import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
@@ -23,6 +24,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.ConnectException;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
@@ -44,8 +46,9 @@ import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
 
 /**
- * Coordinates outgoing and incoming transfer orchestration, progress tracking,
- * and transfer history state without exposing socket/TCP code to UI controllers.
+ * Coordinates outgoing and incoming transfer orchestration, real-time monitoring
+ * integration, progress tracking, and transfer history state without exposing
+ * socket/TCP code to UI controllers.
  */
 public class TransferService implements OutgoingTransferGateway {
 
@@ -153,8 +156,10 @@ public class TransferService implements OutgoingTransferGateway {
     }
 
     private final SendTransport sendTransport;
+    private final TransferMonitoringService monitoringService;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, ActiveTransferContext> runningTasks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Socket> activeSockets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferItem> activeSnapshots = new ConcurrentHashMap<>();
 
     private final ObservableList<TransferItem> activeTransfers = FXCollections.observableArrayList();
@@ -172,19 +177,42 @@ public class TransferService implements OutgoingTransferGateway {
     private final ReadOnlyDoubleWrapper averageActiveProgress = new ReadOnlyDoubleWrapper(this, "averageActiveProgress", 0.0);
 
     public TransferService() {
-        this(TcpClient::send);
+        this(new TransferMonitoringService());
+    }
+
+    public TransferService(TransferMonitoringService monitoringService) {
+        this.sendTransport = null;
+        this.monitoringService = Objects.requireNonNull(monitoringService, "monitoringService");
+        this.executor = createWorkerExecutor();
+        bindMetricListeners();
     }
 
     public TransferService(SendTransport sendTransport) {
+        this(sendTransport, new TransferMonitoringService());
+    }
+
+    public TransferService(SendTransport sendTransport, TransferMonitoringService monitoringService) {
         this.sendTransport = Objects.requireNonNull(sendTransport, "sendTransport");
-        this.executor = Executors.newFixedThreadPool(3, runnable -> {
+        this.monitoringService = Objects.requireNonNull(monitoringService, "monitoringService");
+        this.executor = createWorkerExecutor();
+        bindMetricListeners();
+    }
+
+    private static ExecutorService createWorkerExecutor() {
+        return Executors.newFixedThreadPool(3, runnable -> {
             Thread thread = new Thread(runnable, "syncshare-transfer-worker");
             thread.setDaemon(true);
             return thread;
         });
+    }
 
+    private void bindMetricListeners() {
         activeTransfers.addListener((ListChangeListener<TransferItem>) change -> recalculateMetrics());
         transferHistory.addListener((ListChangeListener<TransferItem>) change -> recalculateMetrics());
+    }
+
+    public TransferMonitoringService getMonitoringService() {
+        return monitoringService;
     }
 
     public ObservableList<TransferItem> getActiveTransfers() {
@@ -379,6 +407,7 @@ public class TransferService implements OutgoingTransferGateway {
         CompletableFuture<TransferItem> completion = new CompletableFuture<>();
         ActiveTransferContext ctx = createContext(transferId, peerHost.trim(), port, file, completion);
         runningTasks.put(transferId, ctx);
+        registerContextMonitoring(ctx);
 
         try {
             Future<?> task = executor.submit(() -> {
@@ -387,12 +416,17 @@ public class TransferService implements OutgoingTransferGateway {
                     completion.complete(result);
                 } catch (Exception error) {
                     TransferItem failed = ctx.latestItem.get();
-                    if (failed.status() == TransferStatus.QUEUED || failed.status() == TransferStatus.TRANSFERRING) {
+                    if (!ctx.terminalHandled.get()
+                            && (failed.status() == TransferStatus.QUEUED
+                                || failed.status() == TransferStatus.CONNECTING
+                                || failed.status() == TransferStatus.TRANSFERRING)) {
+                        monitoringService.onFailed(ctx.transferId, TransferDirection.OUTGOING, ctx.fileName, error.getMessage(), error);
                         failed = recordFailure(ctx, ctx.fileName, error, NO_OP_OBSERVER);
                     }
                     completion.complete(failed);
                 } finally {
                     runningTasks.remove(transferId, ctx);
+                    activeSockets.remove(transferId);
                 }
             });
             ctx.future = task;
@@ -401,6 +435,7 @@ public class TransferService implements OutgoingTransferGateway {
             }
         } catch (RuntimeException submitError) {
             runningTasks.remove(transferId, ctx);
+            monitoringService.onFailed(ctx.transferId, TransferDirection.OUTGOING, ctx.fileName, submitError.getMessage(), submitError);
             TransferItem failed = recordFailure(ctx, ctx.fileName, submitError, NO_OP_OBSERVER);
             completion.complete(failed);
         }
@@ -428,10 +463,12 @@ public class TransferService implements OutgoingTransferGateway {
 
         ActiveTransferContext ctx = createContext(resolvedId, peerHost.trim(), port, file, null);
         runningTasks.put(resolvedId, ctx);
+        registerContextMonitoring(ctx);
         try {
             return runTransferWithContext(ctx, safeObserver, safeCancelled);
         } finally {
             runningTasks.remove(resolvedId, ctx);
+            activeSockets.remove(resolvedId);
         }
     }
 
@@ -463,6 +500,14 @@ public class TransferService implements OutgoingTransferGateway {
         if (transferId == null || transferId.isBlank()) {
             return false;
         }
+
+        boolean cancelledInMonitor = monitoringService.cancelTransfer(transferId);
+
+        Socket socket = activeSockets.remove(transferId);
+        if (socket != null) {
+            closeQuietly(socket);
+        }
+
         ActiveTransferContext ctx = runningTasks.remove(transferId);
         if (ctx != null) {
             ctx.cancelled.set(true);
@@ -477,23 +522,23 @@ public class TransferService implements OutgoingTransferGateway {
         }
 
         TransferItem snapshot = activeSnapshots.get(transferId);
-        if (snapshot == null) {
-            return false;
+        if (snapshot != null) {
+            TransferItem cancelled = new TransferItem(
+                snapshot.id(),
+                snapshot.fileName(),
+                snapshot.totalBytes(),
+                snapshot.transferredBytes(),
+                snapshot.direction(),
+                TransferStatus.CANCELLED,
+                snapshot.peerAddress(),
+                "Cancelled",
+                Instant.now(),
+                "Cancelled by user"
+            );
+            moveToHistoryLocal(cancelled);
+            return true;
         }
-        TransferItem cancelled = new TransferItem(
-            snapshot.id(),
-            snapshot.fileName(),
-            snapshot.totalBytes(),
-            snapshot.transferredBytes(),
-            snapshot.direction(),
-            TransferStatus.FAILED,
-            snapshot.peerAddress(),
-            snapshot.sha256Preview(),
-            Instant.now(),
-            "Cancelled by user"
-        );
-        moveToHistory(cancelled);
-        return true;
+        return cancelledInMonitor || socket != null;
     }
 
     private ActiveTransferContext createContext(
@@ -536,6 +581,19 @@ public class TransferService implements OutgoingTransferGateway {
         );
     }
 
+    private void registerContextMonitoring(ActiveTransferContext ctx) {
+        upsertActiveTransferLocal(ctx.latestItem.get());
+        monitoringService.registerQueued(
+            ctx.transferId,
+            TransferDirection.OUTGOING,
+            ctx.fileName,
+            ctx.initialSize,
+            ctx.peerAddress,
+            "Queued for mTLS 1.3 handshake"
+        );
+        monitoringService.registerCancelHandler(ctx.transferId, () -> cancelActiveTransfer(ctx.transferId, true));
+    }
+
     private TransferItem runTransferWithContext(
         ActiveTransferContext ctx,
         ProgressObserver observer,
@@ -547,46 +605,99 @@ public class TransferService implements OutgoingTransferGateway {
                 return finishCancelled(ctx, observer);
             }
 
-            upsertActiveTransfer(ctx.latestItem.get());
+            upsertActiveTransferLocal(ctx.latestItem.get());
             observer.onStageChanged(
                 TransferStatus.QUEUED,
                 "Connecting & Authenticating",
                 "Connecting to " + ctx.peerAddress + " over Mutual TLS 1.3 and awaiting peer approval..."
             );
 
-            TransferListener listener = new TransferListener() {
+            TransferSessionListener sessionBridge = new TransferSessionListener() {
                 @Override
-                public void onStarted(String name, long totalBytes) {
+                public void onConnecting(
+                    String id,
+                    TransferDirection direction,
+                    String name,
+                    long totalBytes,
+                    String endpoint,
+                    String statusNote
+                ) {
                     if (isCancelled(ctx, cancelledSupplier)) {
                         return;
                     }
+                    monitoringService.onConnecting(id, direction, name, totalBytes, endpoint, statusNote);
+                    long resolvedTotal = totalBytes >= 0L ? totalBytes : ctx.initialSize;
+                    TransferItem connecting = new TransferItem(
+                        ctx.transferId,
+                        name,
+                        resolvedTotal,
+                        0L,
+                        TransferDirection.OUTGOING,
+                        TransferStatus.CONNECTING,
+                        ctx.peerAddress,
+                        "Pending SHA-256",
+                        Instant.now(),
+                        statusNote != null && !statusNote.isBlank() ? statusNote : "Connecting over Mutual TLS 1.3"
+                    );
+                    ctx.latestItem.set(connecting);
+                    upsertActiveTransferLocal(connecting);
+                    observer.onStageChanged(
+                        TransferStatus.CONNECTING,
+                        "Connecting & Authenticating",
+                        statusNote != null && !statusNote.isBlank()
+                            ? statusNote
+                            : "Connecting to " + ctx.peerAddress + " over Mutual TLS 1.3..."
+                    );
+                }
+
+                @Override
+                public void onStarted(
+                    String id,
+                    TransferDirection direction,
+                    String name,
+                    long totalBytes,
+                    long initialBytes,
+                    String endpoint
+                ) {
+                    if (isCancelled(ctx, cancelledSupplier)) {
+                        return;
+                    }
+                    monitoringService.onStarted(id, direction, name, totalBytes, initialBytes, endpoint);
+                    long safeInitial = Math.max(0L, initialBytes);
                     TransferItem started = new TransferItem(
                         ctx.transferId,
                         name,
-                        totalBytes,
-                        0L,
+                        Math.max(0L, totalBytes),
+                        safeInitial,
                         TransferDirection.OUTGOING,
                         TransferStatus.TRANSFERRING,
                         ctx.peerAddress,
                         "SHA-256 active",
                         Instant.now(),
-                        "Connected • Streaming encrypted chunks"
+                        safeInitial > 0L ? "Resuming encrypted transfer" : "Connected • Streaming encrypted chunks"
                     );
                     ctx.latestItem.set(started);
-                    upsertActiveTransfer(started);
+                    upsertActiveTransferLocal(started);
                     observer.onStageChanged(
                         TransferStatus.TRANSFERRING,
                         "Connected • Transferring",
                         "Streaming encrypted 64 KB chunks to " + ctx.peerAddress + "."
                     );
-                    observer.onProgress(name, 0L, totalBytes);
+                    observer.onProgress(name, safeInitial, totalBytes);
                 }
 
                 @Override
-                public void onProgress(String name, long transferredBytes, long totalBytes) {
+                public void onProgress(
+                    String id,
+                    TransferDirection direction,
+                    String name,
+                    long transferredBytes,
+                    long totalBytes
+                ) {
                     if (isCancelled(ctx, cancelledSupplier)) {
                         return;
                     }
+                    monitoringService.onProgress(id, direction, name, transferredBytes, totalBytes);
                     boolean awaitingVerification = totalBytes > 0 && transferredBytes >= totalBytes;
                     String note = awaitingVerification
                         ? "All bytes acknowledged • Awaiting SHA-256 verification"
@@ -594,8 +705,8 @@ public class TransferService implements OutgoingTransferGateway {
                     TransferItem progressItem = new TransferItem(
                         ctx.transferId,
                         name,
-                        totalBytes,
-                        transferredBytes,
+                        Math.max(0L, totalBytes),
+                        Math.max(0L, transferredBytes),
                         TransferDirection.OUTGOING,
                         TransferStatus.TRANSFERRING,
                         ctx.peerAddress,
@@ -611,7 +722,7 @@ public class TransferService implements OutgoingTransferGateway {
                         || awaitingVerification
                         || now - previous >= PROGRESS_UI_INTERVAL_NANOS) {
                         ctx.lastUiProgressNanos.set(now);
-                        upsertActiveTransfer(progressItem);
+                        upsertActiveTransferLocal(progressItem);
                     }
 
                     if (awaitingVerification) {
@@ -625,21 +736,73 @@ public class TransferService implements OutgoingTransferGateway {
                 }
 
                 @Override
-                public void onCompleted(String name) {
+                public void onCompleted(String id, TransferDirection direction, String name) {
                     ctx.backendCompletedCalled.set(true);
                     if (isCancelled(ctx, cancelledSupplier)) {
                         return;
                     }
+                    monitoringService.onCompleted(id, direction, name);
                     recordCompleted(ctx, name, observer);
                 }
 
                 @Override
-                public void onError(String name, Exception error) {
+                public void onFailed(
+                    String id,
+                    TransferDirection direction,
+                    String name,
+                    String reason,
+                    Exception error
+                ) {
                     ctx.backendErrorCalled.set(true);
                     if (isCancelled(ctx, cancelledSupplier)) {
+                        finishCancelled(ctx, observer);
                         return;
                     }
-                    recordFailure(ctx, name, error, observer);
+                    if (isRejectionError(error) || isRejectionMessage(reason)) {
+                        monitoringService.onFailed(
+                            id,
+                            direction,
+                            name,
+                            reason != null && !reason.isBlank() ? reason : "Transfer rejected by receiver",
+                            error
+                        );
+                        recordRejected(ctx, name, observer);
+                        return;
+                    }
+                    monitoringService.onFailed(id, direction, name, reason, error);
+                    Throwable effectiveError = error != null
+                        ? error
+                        : new IOException(reason != null && !reason.isBlank() ? reason : "Transfer failed");
+                    recordFailure(ctx, name, effectiveError, observer);
+                }
+
+                @Override
+                public void onCancelled(String id, TransferDirection direction, String name, String reason) {
+                    ctx.backendErrorCalled.set(true);
+                    finishCancelled(ctx, observer);
+                }
+            };
+
+            TransferListener legacyListener = new TransferListener() {
+                @Override
+                public void onStarted(String name, long totalBytes) {
+                    sessionBridge.onStarted(ctx.transferId, TransferDirection.OUTGOING, name, totalBytes, 0L, ctx.peerAddress);
+                }
+
+                @Override
+                public void onProgress(String name, long transferredBytes, long totalBytes) {
+                    sessionBridge.onProgress(ctx.transferId, TransferDirection.OUTGOING, name, transferredBytes, totalBytes);
+                }
+
+                @Override
+                public void onCompleted(String name) {
+                    sessionBridge.onCompleted(ctx.transferId, TransferDirection.OUTGOING, name);
+                }
+
+                @Override
+                public void onError(String name, Exception error) {
+                    String msg = error != null && error.getMessage() != null ? error.getMessage() : "Transfer failed";
+                    sessionBridge.onFailed(ctx.transferId, TransferDirection.OUTGOING, name, msg, error);
                 }
             };
 
@@ -647,14 +810,41 @@ public class TransferService implements OutgoingTransferGateway {
             int port = Integer.parseInt(ctx.peerAddress.substring(ctx.peerAddress.lastIndexOf(':') + 1));
 
             try {
-                sendTransport.send(hostOnly, port, ctx.normalizedFile, listener);
+                if (sendTransport != null) {
+                    sendTransport.send(hostOnly, port, ctx.normalizedFile, legacyListener);
+                } else {
+                    TcpClient.send(
+                        hostOnly,
+                        port,
+                        ctx.normalizedFile,
+                        ctx.transferId,
+                        sessionBridge,
+                        socket -> {
+                            if (socket != null) {
+                                activeSockets.put(ctx.transferId, socket);
+                                if (isCancelled(ctx, cancelledSupplier)) {
+                                    closeQuietly(socket);
+                                }
+                            } else {
+                                activeSockets.remove(ctx.transferId);
+                            }
+                        }
+                    );
+                }
 
                 if (isCancelled(ctx, cancelledSupplier)) {
                     return finishCancelled(ctx, observer);
                 }
 
-                // FileSender returns without invoking onCompleted or onError when the remote peer sends Protocol.REJECT.
+                // A legacy transport or FileSender implementation may return without invoking onCompleted/onError on Protocol.REJECT.
                 if (!ctx.backendCompletedCalled.get() && !ctx.backendErrorCalled.get()) {
+                    monitoringService.onFailed(
+                        ctx.transferId,
+                        TransferDirection.OUTGOING,
+                        ctx.fileName,
+                        "Transfer rejected by peer",
+                        null
+                    );
                     return recordRejected(ctx, ctx.fileName, observer);
                 }
 
@@ -664,15 +854,41 @@ public class TransferService implements OutgoingTransferGateway {
                     || (ctx.cancelled.get() && (error instanceof InterruptedException || error instanceof InterruptedIOException))) {
                     return finishCancelled(ctx, observer);
                 }
+                if (isRejectionError(error)) {
+                    monitoringService.onFailed(
+                        ctx.transferId,
+                        TransferDirection.OUTGOING,
+                        ctx.fileName,
+                        error.getMessage(),
+                        error
+                    );
+                    return recordRejected(ctx, ctx.fileName, observer);
+                }
+                monitoringService.onFailed(
+                    ctx.transferId,
+                    TransferDirection.OUTGOING,
+                    ctx.fileName,
+                    error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName(),
+                    error
+                );
                 recordFailure(ctx, ctx.fileName, error, observer);
                 throw error;
             }
         } finally {
+            activeSockets.remove(ctx.transferId);
             ctx.workerThread.set(null);
             if (!ctx.terminalHandled.get() && isCancelled(ctx, cancelledSupplier)) {
                 finishCancelled(ctx, observer);
             }
         }
+    }
+
+    private static boolean isRejectionError(Throwable error) {
+        return error instanceof IOException && isRejectionMessage(error.getMessage());
+    }
+
+    private static boolean isRejectionMessage(String message) {
+        return "Transfer rejected by receiver".equals(message);
     }
 
     private boolean isCancelled(ActiveTransferContext ctx, BooleanSupplier cancelledSupplier) {
@@ -698,7 +914,7 @@ public class TransferService implements OutgoingTransferGateway {
                 "Transfer completed and verified"
             );
             ctx.latestItem.set(finished);
-            moveToHistory(finished);
+            moveToHistoryLocal(finished);
             observer.onStageChanged(
                 TransferStatus.COMPLETED,
                 "Verified & Completed",
@@ -729,7 +945,7 @@ public class TransferService implements OutgoingTransferGateway {
                 "Transfer offer was rejected by " + ctx.peerAddress + "."
             );
             ctx.latestItem.set(rejected);
-            moveToHistory(rejected);
+            moveToHistoryLocal(rejected);
             observer.onStageChanged(
                 TransferStatus.REJECTED,
                 "Rejected by Peer",
@@ -770,7 +986,7 @@ public class TransferService implements OutgoingTransferGateway {
                 msg
             );
             ctx.latestItem.set(failed);
-            moveToHistory(failed);
+            moveToHistoryLocal(failed);
             observer.onStageChanged(TransferStatus.FAILED, "Transfer Failed", msg);
             if (ctx.completion != null) {
                 ctx.completion.complete(failed);
@@ -782,6 +998,16 @@ public class TransferService implements OutgoingTransferGateway {
 
     private TransferItem finishCancelled(ActiveTransferContext ctx, ProgressObserver observer) {
         ctx.cancelled.set(true);
+        Socket socket = activeSockets.remove(ctx.transferId);
+        if (socket != null) {
+            closeQuietly(socket);
+        }
+        monitoringService.onCancelled(
+            ctx.transferId,
+            TransferDirection.OUTGOING,
+            ctx.fileName,
+            "Cancelled by user"
+        );
         if (ctx.terminalHandled.compareAndSet(false, true)) {
             TransferItem current = ctx.latestItem.get();
             long size = current != null && current.totalBytes() > 0 ? current.totalBytes() : ctx.initialSize;
@@ -792,16 +1018,16 @@ public class TransferService implements OutgoingTransferGateway {
                 size,
                 done,
                 TransferDirection.OUTGOING,
-                TransferStatus.FAILED,
+                TransferStatus.CANCELLED,
                 ctx.peerAddress,
                 "Cancelled",
                 Instant.now(),
                 "Cancelled by user"
             );
             ctx.latestItem.set(cancelledItem);
-            moveToHistory(cancelledItem);
+            moveToHistoryLocal(cancelledItem);
             observer.onStageChanged(
-                TransferStatus.FAILED,
+                TransferStatus.CANCELLED,
                 "Transfer Cancelled",
                 "Outgoing transfer was cancelled and cleaned up."
             );
@@ -855,6 +1081,16 @@ public class TransferService implements OutgoingTransferGateway {
     }
 
     public void upsertActiveTransfer(TransferItem item) {
+        upsertActiveTransferLocal(item);
+        monitoringService.syncTransferItem(item);
+    }
+
+    public void moveToHistory(TransferItem finishedItem) {
+        moveToHistoryLocal(finishedItem);
+        monitoringService.syncTransferItem(finishedItem);
+    }
+
+    void upsertActiveTransferLocal(TransferItem item) {
         Objects.requireNonNull(item, "item");
         activeSnapshots.put(item.id(), item);
         runOnFxThread(() -> {
@@ -871,7 +1107,7 @@ public class TransferService implements OutgoingTransferGateway {
         });
     }
 
-    public void moveToHistory(TransferItem finishedItem) {
+    void moveToHistoryLocal(TransferItem finishedItem) {
         Objects.requireNonNull(finishedItem, "finishedItem");
         activeSnapshots.remove(finishedItem.id());
         runOnFxThread(() -> {
@@ -898,7 +1134,9 @@ public class TransferService implements OutgoingTransferGateway {
             if (item.status() == TransferStatus.COMPLETED) {
                 completed++;
                 bytes += item.totalBytes();
-            } else if (item.status() == TransferStatus.FAILED || item.status() == TransferStatus.REJECTED) {
+            } else if (item.status() == TransferStatus.FAILED
+                    || item.status() == TransferStatus.REJECTED
+                    || item.status() == TransferStatus.CANCELLED) {
                 failed++;
                 bytes += item.transferredBytes();
             }
@@ -929,8 +1167,20 @@ public class TransferService implements OutgoingTransferGateway {
         for (String id : runningTasks.keySet()) {
             cancelActiveTransfer(id);
         }
+        activeSockets.values().forEach(TransferService::closeQuietly);
+        activeSockets.clear();
         runningTasks.clear();
         executor.shutdownNow();
+        monitoringService.shutdown();
+    }
+
+    private static void closeQuietly(Socket socket) {
+        if (socket != null && !socket.isClosed()) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     private static void runOnFxThread(Runnable task) {

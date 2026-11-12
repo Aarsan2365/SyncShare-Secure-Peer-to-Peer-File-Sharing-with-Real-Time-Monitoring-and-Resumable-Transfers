@@ -524,7 +524,7 @@ public class SendFilesController implements NavigationAware {
         String headline = sendTransferService.stageHeadlineProperty().get();
         String detail = sendTransferService.stageDetailProperty().get();
 
-        if (stage == TransferStatus.QUEUED) {
+        if (stage == TransferStatus.QUEUED || stage == TransferStatus.CONNECTING) {
             sendConnectionStatusBadge.setText("Connecting");
             sendConnectionStatusBadge.setTone(SemanticTone.INFO);
             sendProgressBar.setTone(SemanticTone.INFO);
@@ -550,7 +550,7 @@ public class SendFilesController implements NavigationAware {
         long transferred = sendTransferService.transferredBytesProperty().get();
         long total = sendTransferService.totalBytesProperty().get();
 
-        if (stage == TransferStatus.QUEUED) {
+        if (stage == TransferStatus.QUEUED || stage == TransferStatus.CONNECTING) {
             sendProgressBar.setTitle("Establishing Mutual TLS 1.3 session & peer approval");
             sendProgressBar.setProgress(-1.0);
             sendProgressBar.setStatusText("Waiting...");
@@ -634,7 +634,8 @@ public class SendFilesController implements NavigationAware {
             return;
         }
 
-        if (result != null && result.status() == TransferStatus.FAILED && "Cancelled by user".equals(result.note())) {
+        if (result != null && (result.status() == TransferStatus.CANCELLED
+                || (result.status() == TransferStatus.FAILED && "Cancelled by user".equals(result.note())))) {
             handleTransferCancelled();
             return;
         }

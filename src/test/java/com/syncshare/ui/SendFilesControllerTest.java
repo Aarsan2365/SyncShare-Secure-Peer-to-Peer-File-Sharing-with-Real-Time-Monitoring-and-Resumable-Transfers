@@ -469,7 +469,7 @@ class SendFilesControllerTest {
                 assertEquals(0, fx.services().transferService().getActiveTransfers().size());
                 assertEquals(1, fx.services().transferService().getTransferHistory().size());
                 TransferItem item = fx.services().transferService().getTransferHistory().get(0);
-                assertEquals(TransferStatus.FAILED, item.status());
+                assertEquals(TransferStatus.CANCELLED, item.status());
                 assertEquals("Cancelled by user", item.note());
             });
         } finally {

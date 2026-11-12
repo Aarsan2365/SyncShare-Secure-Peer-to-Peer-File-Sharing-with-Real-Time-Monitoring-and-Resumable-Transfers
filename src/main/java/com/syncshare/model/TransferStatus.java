@@ -7,11 +7,13 @@ import com.syncshare.ui.design.SemanticTone;
  */
 public enum TransferStatus {
     QUEUED("Queued", SemanticTone.NEUTRAL, true),
+    CONNECTING("Connecting", SemanticTone.INFO, true),
     AWAITING_APPROVAL("Pending Approval", SemanticTone.WARNING, true),
     TRANSFERRING("Transferring", SemanticTone.TEAL, true),
     PAUSED("Paused", SemanticTone.WARNING, true),
     COMPLETED("Verified", SemanticTone.SUCCESS, false),
     FAILED("Failed", SemanticTone.ERROR, false),
+    CANCELLED("Cancelled", SemanticTone.WARNING, false),
     REJECTED("Rejected", SemanticTone.ERROR, false);
 
     private final String displayName;

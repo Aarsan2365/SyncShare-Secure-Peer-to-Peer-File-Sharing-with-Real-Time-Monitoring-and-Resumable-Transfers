@@ -107,3 +107,11 @@
 .ss-table .show-hide-columns-button {
     -fx-background-color: transparent;
 }
+
+.ss-table-monitoring .table-row-cell {
+    -fx-cell-size: 62px;
+}
+
+.ss-table-monitoring .table-cell {
+    -fx-padding: 6px 10px;
+}

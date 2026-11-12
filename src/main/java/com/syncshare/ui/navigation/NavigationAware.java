@@ -12,4 +12,7 @@ public interface NavigationAware {
 
     default void onNavigatedTo() {
     }
+
+    default void dispose() {
+    }
 }

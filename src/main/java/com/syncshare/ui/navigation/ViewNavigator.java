@@ -156,6 +156,21 @@ public class ViewNavigator {
         return destinations.get(id);
     }
 
+    /**
+     * Disposes all cached screen controllers so listeners and resources are released cleanly.
+     */
+    public void dispose() {
+        for (LoadedScreen screen : cache.values()) {
+            if (screen != null && screen.controller() instanceof NavigationAware aware) {
+                try {
+                    aware.dispose();
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+        cache.clear();
+    }
+
     private void showOnlyNode(Node target) {
         for (Node child : viewHost.getChildren()) {
             boolean match = child == target;

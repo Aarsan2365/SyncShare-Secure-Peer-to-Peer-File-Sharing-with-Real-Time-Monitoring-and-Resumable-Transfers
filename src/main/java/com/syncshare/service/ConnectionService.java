@@ -3,6 +3,7 @@ package com.syncshare.service;
 import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
 import com.syncshare.events.IncomingTransferObserver;
+import com.syncshare.events.TransferSessionListener;
 import com.syncshare.model.AppSettings;
 import com.syncshare.model.ConnectionState;
 import com.syncshare.model.ConnectionStatus;
@@ -30,11 +31,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Coordinates SyncShare peer listener readiness, connection indicator state,
- * incoming transfer lifecycle events, and approval decisions without exposing
- * socket APIs to UI controllers.
+ * incoming transfer lifecycle events, monitoring integration, and approval decisions
+ * without exposing socket APIs to UI controllers.
  */
 public class ConnectionService implements IncomingTransferGateway {
 
@@ -69,9 +71,11 @@ public class ConnectionService implements IncomingTransferGateway {
     private final SettingsService settingsService;
     private final DeviceInfoService deviceInfoService;
     private final TransferService transferService;
+    private final TransferMonitoringService monitoringService;
     private final ServerStarter legacyServerStarter;
     private final ReceiverServerFactory receiverServerFactory;
     private final boolean usingLegacyStarter;
+    private final boolean usingCustomReceiverFactory;
 
     private final ReadOnlyObjectWrapper<ConnectionStatus> status =
         new ReadOnlyObjectWrapper<>(this, "status");
@@ -95,22 +99,15 @@ public class ConnectionService implements IncomingTransferGateway {
     private volatile int boundPort = -1;
 
     public ConnectionService(SettingsService settingsService, DeviceInfoService deviceInfoService) {
-        this(settingsService, deviceInfoService, (TransferService) null);
+        this(settingsService, deviceInfoService, (TransferService) null, (TransferMonitoringService) null);
     }
 
     public ConnectionService(
         SettingsService settingsService,
         DeviceInfoService deviceInfoService,
-        ServerStarter serverStarter
+        TransferMonitoringService monitoringService
     ) {
-        this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
-        this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
-        this.transferService = null;
-        this.legacyServerStarter = Objects.requireNonNull(serverStarter, "serverStarter");
-        this.receiverServerFactory = (port, handler, dir, observer) -> this.legacyServerStarter.start(port, handler);
-        this.usingLegacyStarter = true;
-
-        initializeServiceListeners();
+        this(settingsService, deviceInfoService, (TransferService) null, monitoringService);
     }
 
     public ConnectionService(
@@ -122,18 +119,45 @@ public class ConnectionService implements IncomingTransferGateway {
             settingsService,
             deviceInfoService,
             transferService,
-            (port, handler, receiveDir, observer) -> {
-                PeerServer server = new PeerServer(
-                    port,
-                    handler,
-                    new ConsoleTransferListener(),
-                    receiveDir,
-                    observer
-                );
-                server.start();
-                return server;
-            }
+            transferService != null ? transferService.getMonitoringService() : null
         );
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        TransferService transferService,
+        TransferMonitoringService monitoringService
+    ) {
+        this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
+        this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
+        this.transferService = transferService;
+        this.monitoringService = monitoringService != null
+            ? monitoringService
+            : (transferService != null ? transferService.getMonitoringService() : null);
+        this.legacyServerStarter = null;
+        this.receiverServerFactory = this::startManagedPeerServer;
+        this.usingLegacyStarter = false;
+        this.usingCustomReceiverFactory = false;
+
+        initializeServiceListeners();
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        ServerStarter serverStarter
+    ) {
+        this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
+        this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
+        this.transferService = null;
+        this.monitoringService = null;
+        this.legacyServerStarter = Objects.requireNonNull(serverStarter, "serverStarter");
+        this.receiverServerFactory = (port, handler, dir, observer) -> this.legacyServerStarter.start(port, handler);
+        this.usingLegacyStarter = true;
+        this.usingCustomReceiverFactory = false;
+
+        initializeServiceListeners();
     }
 
     public ConnectionService(
@@ -142,12 +166,32 @@ public class ConnectionService implements IncomingTransferGateway {
         TransferService transferService,
         ReceiverServerFactory receiverServerFactory
     ) {
+        this(
+            settingsService,
+            deviceInfoService,
+            transferService,
+            transferService != null ? transferService.getMonitoringService() : null,
+            receiverServerFactory
+        );
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        TransferService transferService,
+        TransferMonitoringService monitoringService,
+        ReceiverServerFactory receiverServerFactory
+    ) {
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
         this.transferService = transferService;
+        this.monitoringService = monitoringService != null
+            ? monitoringService
+            : (transferService != null ? transferService.getMonitoringService() : null);
         this.legacyServerStarter = null;
         this.receiverServerFactory = Objects.requireNonNull(receiverServerFactory, "receiverServerFactory");
         this.usingLegacyStarter = false;
+        this.usingCustomReceiverFactory = true;
 
         initializeServiceListeners();
     }
@@ -168,6 +212,97 @@ public class ConnectionService implements IncomingTransferGateway {
         if (this.settingsService.getSettings().autoStartReceiver() && this.deviceInfoService.isTlsConfigured()) {
             startReceiver();
         }
+    }
+
+    private PeerServer startManagedPeerServer(
+        int port,
+        ApprovalHandler handler,
+        Path receiveDir,
+        IncomingTransferObserver observer
+    ) throws IOException {
+        AtomicReference<PeerServer> serverRef = new AtomicReference<>();
+        TransferSessionListener sessionListener = createSessionListener(serverRef);
+        PeerServer server = new PeerServer(
+            port,
+            handler,
+            new ConsoleTransferListener(),
+            receiveDir,
+            observer,
+            null,
+            sessionListener
+        );
+        serverRef.set(server);
+        server.start();
+        return server;
+    }
+
+    private TransferSessionListener createSessionListener(AtomicReference<PeerServer> serverRef) {
+        if (monitoringService == null) {
+            return TransferSessionListener.NO_OP;
+        }
+        return new TransferSessionListener() {
+            @Override
+            public void onConnecting(
+                String transferId,
+                TransferDirection direction,
+                String fileName,
+                long totalBytes,
+                String peerAddress,
+                String statusNote
+            ) {
+                monitoringService.onConnecting(transferId, direction, fileName, totalBytes, peerAddress, statusNote);
+                monitoringService.registerCancelHandler(transferId, () -> {
+                    PeerServer peerServer = serverRef.get();
+                    if (peerServer != null) {
+                        peerServer.cancelTransfer(transferId);
+                    }
+                });
+            }
+
+            @Override
+            public void onStarted(
+                String transferId,
+                TransferDirection direction,
+                String fileName,
+                long totalBytes,
+                long initialBytes,
+                String peerAddress
+            ) {
+                monitoringService.onStarted(transferId, direction, fileName, totalBytes, initialBytes, peerAddress);
+            }
+
+            @Override
+            public void onProgress(
+                String transferId,
+                TransferDirection direction,
+                String fileName,
+                long transferredBytes,
+                long totalBytes
+            ) {
+                monitoringService.onProgress(transferId, direction, fileName, transferredBytes, totalBytes);
+            }
+
+            @Override
+            public void onCompleted(String transferId, TransferDirection direction, String fileName) {
+                monitoringService.onCompleted(transferId, direction, fileName);
+            }
+
+            @Override
+            public void onFailed(
+                String transferId,
+                TransferDirection direction,
+                String fileName,
+                String reason,
+                Exception error
+            ) {
+                monitoringService.onFailed(transferId, direction, fileName, reason, error);
+            }
+
+            @Override
+            public void onCancelled(String transferId, TransferDirection direction, String fileName, String reason) {
+                monitoringService.onCancelled(transferId, direction, fileName, reason);
+            }
+        };
     }
 
     @Override
@@ -389,6 +524,28 @@ public class ConnectionService implements IncomingTransferGateway {
         updateIncomingSession(IncomingTransferSession.idle());
     }
 
+    private void recordIncomingActiveItem(TransferItem item) {
+        if (transferService == null) {
+            return;
+        }
+        if (usingCustomReceiverFactory) {
+            transferService.upsertActiveTransfer(item);
+        } else {
+            transferService.upsertActiveTransferLocal(item);
+        }
+    }
+
+    private void recordIncomingTerminalItem(TransferItem item) {
+        if (transferService == null) {
+            return;
+        }
+        if (usingCustomReceiverFactory) {
+            transferService.moveToHistory(item);
+        } else {
+            transferService.moveToHistoryLocal(item);
+        }
+    }
+
     private IncomingTransferObserver createIncomingObserver() {
         return new IncomingTransferObserver() {
             @Override
@@ -469,20 +626,18 @@ public class ConnectionService implements IncomingTransferGateway {
                     Instant.now()
                 ));
 
-                if (transferService != null) {
-                    transferService.upsertActiveTransfer(new TransferItem(
-                        transferId,
-                        fileName,
-                        fileSize,
-                        0L,
-                        TransferDirection.INCOMING,
-                        manualApproval ? TransferStatus.AWAITING_APPROVAL : TransferStatus.QUEUED,
-                        tracked.senderAddress,
-                        "Pending SHA-256",
-                        Instant.now(),
-                        manualApproval ? "Awaiting local approval" : "Offer accepted automatically"
-                    ));
-                }
+                recordIncomingActiveItem(new TransferItem(
+                    transferId,
+                    fileName,
+                    fileSize,
+                    0L,
+                    TransferDirection.INCOMING,
+                    manualApproval ? TransferStatus.AWAITING_APPROVAL : TransferStatus.QUEUED,
+                    tracked.senderAddress,
+                    "Pending SHA-256",
+                    Instant.now(),
+                    manualApproval ? "Awaiting local approval" : "Offer accepted automatically"
+                ));
             }
 
             @Override
@@ -507,20 +662,18 @@ public class ConnectionService implements IncomingTransferGateway {
                         "Declined " + fileName + " from " + sender,
                         Instant.now()
                     ));
-                    if (transferService != null) {
-                        transferService.moveToHistory(new TransferItem(
-                            transferId,
-                            fileName,
-                            total,
-                            0L,
-                            TransferDirection.INCOMING,
-                            TransferStatus.REJECTED,
-                            sender,
-                            "Rejected",
-                            Instant.now(),
-                            "Rejected by receiver"
-                        ));
-                    }
+                    recordIncomingTerminalItem(new TransferItem(
+                        transferId,
+                        fileName,
+                        total,
+                        0L,
+                        TransferDirection.INCOMING,
+                        TransferStatus.REJECTED,
+                        sender,
+                        "Rejected",
+                        Instant.now(),
+                        "Rejected by receiver"
+                    ));
                     refreshStatus();
                 }
             }
@@ -560,20 +713,18 @@ public class ConnectionService implements IncomingTransferGateway {
                     Instant.now()
                 ));
 
-                if (transferService != null) {
-                    transferService.upsertActiveTransfer(new TransferItem(
-                        transferId,
-                        fileName,
-                        totalBytes,
-                        0L,
-                        TransferDirection.INCOMING,
-                        TransferStatus.TRANSFERRING,
-                        tracked.senderAddress,
-                        "SHA-256 active",
-                        Instant.now(),
-                        "Receiving encrypted chunks"
-                    ));
-                }
+                recordIncomingActiveItem(new TransferItem(
+                    transferId,
+                    fileName,
+                    totalBytes,
+                    0L,
+                    TransferDirection.INCOMING,
+                    TransferStatus.TRANSFERRING,
+                    tracked.senderAddress,
+                    "SHA-256 active",
+                    Instant.now(),
+                    "Receiving encrypted chunks"
+                ));
 
                 if (listening) {
                     int port = resolveDisplayPort(settingsService.getSettings().listeningPort());
@@ -623,20 +774,18 @@ public class ConnectionService implements IncomingTransferGateway {
                     Instant.now()
                 ));
 
-                if (transferService != null) {
-                    transferService.upsertActiveTransfer(new TransferItem(
-                        transferId,
-                        fileName,
-                        totalBytes,
-                        transferredBytes,
-                        TransferDirection.INCOMING,
-                        TransferStatus.TRANSFERRING,
-                        tracked.senderAddress,
-                        "SHA-256 active",
-                        Instant.now(),
-                        "Receiving encrypted chunks"
-                    ));
-                }
+                recordIncomingActiveItem(new TransferItem(
+                    transferId,
+                    fileName,
+                    totalBytes,
+                    transferredBytes,
+                    TransferDirection.INCOMING,
+                    TransferStatus.TRANSFERRING,
+                    tracked.senderAddress,
+                    "SHA-256 active",
+                    Instant.now(),
+                    "Receiving encrypted chunks"
+                ));
             }
 
             @Override
@@ -663,20 +812,18 @@ public class ConnectionService implements IncomingTransferGateway {
                     Instant.now()
                 ));
 
-                if (transferService != null) {
-                    transferService.moveToHistory(new TransferItem(
-                        transferId,
-                        fileName,
-                        total,
-                        total,
-                        TransferDirection.INCOMING,
-                        TransferStatus.COMPLETED,
-                        sender,
-                        "SHA-256 verified",
-                        Instant.now(),
-                        "Saved to " + locationText
-                    ));
-                }
+                recordIncomingTerminalItem(new TransferItem(
+                    transferId,
+                    fileName,
+                    total,
+                    total,
+                    TransferDirection.INCOMING,
+                    TransferStatus.COMPLETED,
+                    sender,
+                    "SHA-256 verified",
+                    Instant.now(),
+                    "Saved to " + locationText
+                ));
                 refreshStatus();
             }
 
@@ -710,20 +857,18 @@ public class ConnectionService implements IncomingTransferGateway {
                     Instant.now()
                 ));
 
-                if (transferService != null) {
-                    transferService.moveToHistory(new TransferItem(
-                        transferId,
-                        resolvedName,
-                        total,
-                        done,
-                        TransferDirection.INCOMING,
-                        TransferStatus.FAILED,
-                        sender,
-                        "Interrupted",
-                        Instant.now(),
-                        detail
-                    ));
-                }
+                recordIncomingTerminalItem(new TransferItem(
+                    transferId,
+                    resolvedName,
+                    total,
+                    done,
+                    TransferDirection.INCOMING,
+                    TransferStatus.FAILED,
+                    sender,
+                    "Interrupted",
+                    Instant.now(),
+                    detail
+                ));
                 refreshStatus();
             }
         };
