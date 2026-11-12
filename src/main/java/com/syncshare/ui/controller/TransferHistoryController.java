@@ -1,5 +1,6 @@
 package com.syncshare.ui.controller;
 
+import com.syncshare.history.TransferHistoryStatus;
 import com.syncshare.history.TransferRecord;
 import com.syncshare.model.NavItemId;
 import com.syncshare.service.HistoryService;
@@ -9,10 +10,13 @@ import com.syncshare.ui.design.EmptyStatePane;
 import com.syncshare.ui.design.FeedbackBanner;
 import com.syncshare.ui.design.SemanticTone;
 import com.syncshare.ui.design.StatusBadge;
+import com.syncshare.ui.design.UiButtons;
 import com.syncshare.ui.design.UiCard;
+import com.syncshare.ui.design.UiDialogs;
 import com.syncshare.ui.design.UiIcons;
 import com.syncshare.ui.navigation.NavigationAware;
 import com.syncshare.ui.navigation.ViewNavigator;
+import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.value.ChangeListener;
@@ -21,22 +25,34 @@ import javafx.collections.transformation.FilteredList;
 import javafx.collections.transformation.SortedList;
 import javafx.fxml.FXML;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Window;
+import javafx.util.StringConverter;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 /**
  * Controller for the persistent Transfer History view.
- * Renders saved terminal transfers from {@link HistoryService} without executing
- * disk persistence or business logic on the JavaFX Application Thread.
+ * Delegates persistence, querying, filtering, sorting, and clearing strictly
+ * to {@link HistoryService} while keeping all I/O off the JavaFX Application Thread.
  */
 public class TransferHistoryController implements NavigationAware {
 
@@ -48,13 +64,23 @@ public class TransferHistoryController implements NavigationAware {
 
     private FeedbackBanner statusBanner;
     private TextField searchField;
+    private HBox statusFilterBar;
+    private ComboBox<HistoryService.SortOrder> sortOrderComboBox;
+    private Button refreshButton;
+    private Button clearHistoryButton;
     private StatusBadge historyCountBadge;
     private TableView<TransferRecord> historyTable;
+    private EmptyStatePane emptyStatePane;
+
     private FilteredList<TransferRecord> filteredHistory;
     private SortedList<TransferRecord> sortedHistory;
+    private TransferHistoryStatus activeStatusFilter;
+    private BooleanSupplier clearConfirmationOverride;
 
     private ListChangeListener<TransferRecord> historyListListener;
     private ChangeListener<String> searchListener;
+    private ChangeListener<HistoryService.SortOrder> sortListener;
+    private ChangeListener<Boolean> loadingListener;
     private ChangeListener<String> errorListener;
     private ChangeListener<String> warningListener;
 
@@ -76,18 +102,25 @@ public class TransferHistoryController implements NavigationAware {
 
         HistoryService historyService = services.historyService();
         filteredHistory = new FilteredList<>(historyService.getRecords(), record -> true);
-        sortedHistory = new SortedList<>(filteredHistory, HistoryService.comparatorFor(HistoryService.SortOrder.NEWEST_FIRST));
+        sortedHistory = new SortedList<>(
+            filteredHistory,
+            HistoryService.comparatorFor(getSelectedSortOrder())
+        );
         historyTable.setItems(sortedHistory);
 
-        historyListListener = change -> updateHeaderState();
+        historyListListener = change -> updatePresentationState();
         historyService.getRecords().addListener(historyListListener);
 
+        loadingListener = (obs, oldVal, isLoading) -> updateLoadingState(Boolean.TRUE.equals(isLoading));
         errorListener = (obs, oldVal, newVal) -> updateFeedbackBanner();
         warningListener = (obs, oldVal, newVal) -> updateFeedbackBanner();
+        historyService.loadingProperty().addListener(loadingListener);
         historyService.lastErrorProperty().addListener(errorListener);
         historyService.warningMessageProperty().addListener(warningListener);
 
         applyPresentationFilter();
+        applySortOrder();
+        updateLoadingState(historyService.loadingProperty().get());
         updateHeaderState();
         updateFeedbackBanner();
     }
@@ -95,8 +128,7 @@ public class TransferHistoryController implements NavigationAware {
     @Override
     public void onNavigatedTo() {
         if (initializedContext && services != null) {
-            applyPresentationFilter();
-            updateHeaderState();
+            updatePresentationState();
             updateFeedbackBanner();
         }
     }
@@ -108,6 +140,9 @@ public class TransferHistoryController implements NavigationAware {
             if (historyListListener != null) {
                 historyService.getRecords().removeListener(historyListListener);
             }
+            if (loadingListener != null) {
+                historyService.loadingProperty().removeListener(loadingListener);
+            }
             if (errorListener != null) {
                 historyService.lastErrorProperty().removeListener(errorListener);
             }
@@ -116,11 +151,16 @@ public class TransferHistoryController implements NavigationAware {
             }
         }
         historyListListener = null;
+        loadingListener = null;
         errorListener = null;
         warningListener = null;
         if (searchField != null && searchListener != null) {
             searchField.textProperty().removeListener(searchListener);
             searchListener = null;
+        }
+        if (sortOrderComboBox != null && sortListener != null) {
+            sortOrderComboBox.valueProperty().removeListener(sortListener);
+            sortListener = null;
         }
         initializedContext = false;
     }
@@ -141,7 +181,17 @@ public class TransferHistoryController implements NavigationAware {
         historyCountBadge = new StatusBadge("0 Items", SemanticTone.NEUTRAL);
         historyCountBadge.setCompact(true);
 
-        HBox trailing = new HBox(DesignSystem.SPACE_XS, historyCountBadge);
+        clearHistoryButton = UiButtons.create(
+            "Clear History",
+            UiButtons.Variant.DANGER_OUTLINE,
+            UiButtons.Size.SM
+        );
+        clearHistoryButton.setId("clearHistoryButton");
+        clearHistoryButton.setAccessibleText("Clear saved transfer history");
+        clearHistoryButton.setDisable(true);
+        clearHistoryButton.setOnAction(event -> handleClearHistory());
+
+        HBox trailing = new HBox(DesignSystem.SPACE_XS, historyCountBadge, clearHistoryButton);
         trailing.setAlignment(Pos.CENTER_RIGHT);
 
         card.setHeader(
@@ -156,14 +206,92 @@ public class TransferHistoryController implements NavigationAware {
         searchField.setPromptText("Search history by file name...");
         searchField.setAccessibleText("Search transfer history by file name");
         searchField.getStyleClass().addAll("input-field", "search-field");
-        searchListener = (obs, oldVal, newVal) -> applyPresentationFilter();
+        searchField.setPrefWidth(190);
+        searchListener = (obs, oldVal, newVal) -> updatePresentationState();
         searchField.textProperty().addListener(searchListener);
-        HBox.setHgrow(searchField, Priority.ALWAYS);
+
+        statusFilterBar = buildStatusSegmentedBar();
+
+        sortOrderComboBox = new ComboBox<>();
+        sortOrderComboBox.setId("historySortComboBox");
+        sortOrderComboBox.getStyleClass().add("combo-input");
+        sortOrderComboBox.setAccessibleText("Sort transfer history by date");
+        sortOrderComboBox.getItems().setAll(
+            HistoryService.SortOrder.NEWEST_FIRST,
+            HistoryService.SortOrder.OLDEST_FIRST
+        );
+        sortOrderComboBox.setValue(HistoryService.SortOrder.NEWEST_FIRST);
+        sortOrderComboBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(HistoryService.SortOrder order) {
+                return order != null ? order.displayName() : "";
+            }
+
+            @Override
+            public HistoryService.SortOrder fromString(String string) {
+                return HistoryService.SortOrder.NEWEST_FIRST;
+            }
+        });
+        sortListener = (obs, oldVal, newVal) -> applySortOrder();
+        sortOrderComboBox.valueProperty().addListener(sortListener);
+
+        refreshButton = UiButtons.create(
+            "Refresh",
+            UiIcons.create(UiIcons.IconType.REFRESH, UiIcons.Size.SM),
+            UiButtons.Variant.SECONDARY,
+            UiButtons.Size.SM
+        );
+        refreshButton.setId("refreshHistoryButton");
+        refreshButton.setAccessibleText("Refresh transfer history from disk");
+        refreshButton.setOnAction(event -> handleRefreshHistory());
+
+        FlowPane toolbar = new FlowPane(DesignSystem.SPACE_XS, DesignSystem.SPACE_XS);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        toolbar.getChildren().addAll(searchField, statusFilterBar, sortOrderComboBox, refreshButton);
 
         historyTable = createTable();
-        card.setBodyContent(searchField, historyTable);
+        card.setBodyContent(toolbar, historyTable);
 
         transferHistoryRoot.getChildren().addAll(statusBanner, card);
+    }
+
+    private HBox buildStatusSegmentedBar() {
+        HBox bar = new HBox();
+        bar.setId("historyStatusFilterBar");
+        bar.getStyleClass().add("segmented-bar");
+        bar.setMinWidth(Region.USE_PREF_SIZE);
+
+        addStatusFilterButton(bar, "All", null);
+        addStatusFilterButton(bar, "Completed", TransferHistoryStatus.COMPLETED);
+        addStatusFilterButton(bar, "Failed", TransferHistoryStatus.FAILED);
+        addStatusFilterButton(bar, "Cancelled", TransferHistoryStatus.CANCELLED);
+        return bar;
+    }
+
+    private void addStatusFilterButton(HBox bar, String label, TransferHistoryStatus status) {
+        Button button = new Button(label);
+        button.setId("historyFilter" + label + "Button");
+        button.setMnemonicParsing(false);
+        button.setMinWidth(Region.USE_PREF_SIZE);
+        button.getStyleClass().add("segmented-item");
+        if (status == null) {
+            button.getStyleClass().add("segmented-item-active");
+        }
+        button.setOnAction(event -> selectStatusFilter(status, button));
+        bar.getChildren().add(button);
+    }
+
+    private void selectStatusFilter(TransferHistoryStatus status, Button activeButton) {
+        this.activeStatusFilter = status;
+        if (statusFilterBar != null) {
+            for (Node child : statusFilterBar.getChildren()) {
+                child.getStyleClass().remove("segmented-item-active");
+            }
+        }
+        if (activeButton != null && !activeButton.getStyleClass().contains("segmented-item-active")) {
+            activeButton.getStyleClass().add("segmented-item-active");
+        }
+        updatePresentationState();
     }
 
     private TableView<TransferRecord> createTable() {
@@ -174,18 +302,14 @@ public class TransferHistoryController implements NavigationAware {
         table.setPrefHeight(360);
         table.setMinHeight(220);
 
-        EmptyStatePane placeholder = new EmptyStatePane(
+        emptyStatePane = new EmptyStatePane(
             UiIcons.IconType.CLOCK,
             SemanticTone.INFO,
             "No transfer history recorded",
             "Completed, failed, and cancelled transfers will persist here with timestamps, duration, and status."
-        ).setCompact(true)
-         .setPrimaryAction("Back to Dashboard", UiIcons.IconType.DASHBOARD, () -> {
-             if (navigator != null) {
-                 navigator.navigateTo(NavItemId.DASHBOARD);
-             }
-         });
-        table.setPlaceholder(placeholder);
+        ).setCompact(true);
+        configureEmptyStateForNoHistory();
+        table.setPlaceholder(emptyStatePane);
 
         // Sum of column minWidths <= 410 px so 800x560 breakpoint never overflows horizontally
         TableColumn<TransferRecord, TransferRecord> fileCol = new TableColumn<>("FILE");
@@ -284,12 +408,93 @@ public class TransferHistoryController implements NavigationAware {
         return table;
     }
 
+    private void handleRefreshHistory() {
+        if (services == null) {
+            return;
+        }
+        services.historyService().refreshAsync().whenComplete((result, err) -> runOnFx(() -> {
+            updatePresentationState();
+            updateFeedbackBanner();
+        }));
+    }
+
+    private void handleClearHistory() {
+        if (services == null) {
+            return;
+        }
+        HistoryService historyService = services.historyService();
+        int count = historyService.getRecords().size();
+        if (!confirmClearHistory(count)) {
+            return;
+        }
+        historyService.clearHistoryAsync().whenComplete((result, err) -> runOnFx(() -> {
+            updatePresentationState();
+            if (err != null) {
+                showErrorBanner("Failed to clear transfer history", err.getMessage());
+            } else if (result != null && !result.success()) {
+                showErrorBanner("Clear History Failed", result.message());
+            } else {
+                updateFeedbackBanner();
+            }
+        }));
+    }
+
+    private boolean confirmClearHistory(int itemCount) {
+        if (clearConfirmationOverride != null) {
+            return clearConfirmationOverride.getAsBoolean();
+        }
+        Alert dialog = createClearHistoryConfirmationDialog(itemCount);
+        Optional<ButtonType> choice = dialog.showAndWait();
+        return choice.isPresent()
+            && choice.get().getButtonData() == ButtonBar.ButtonData.OK_DONE;
+    }
+
+    Alert createClearHistoryConfirmationDialog(int itemCount) {
+        Window owner = transferHistoryRoot != null && transferHistoryRoot.getScene() != null
+            ? transferHistoryRoot.getScene().getWindow()
+            : null;
+        String message = "Permanently remove " + itemCount + (itemCount == 1 ? " saved transfer record" : " saved transfer records")
+            + " from persistent history?\n\n"
+            + "This cannot be undone. Active transfers and live monitoring data will remain intact.";
+        return UiDialogs.confirmDanger(
+            owner,
+            "Clear Transfer History",
+            "Permanently delete saved transfer history?",
+            message,
+            "Clear History"
+        );
+    }
+
+    void setClearConfirmationOverride(BooleanSupplier handler) {
+        this.clearConfirmationOverride = handler;
+    }
+
+    private void updatePresentationState() {
+        applyPresentationFilter();
+        updateHeaderState();
+        updateEmptyStateCopy();
+    }
+
     private void applyPresentationFilter() {
         if (filteredHistory == null) {
             return;
         }
         String query = searchField != null ? searchField.getText() : "";
-        filteredHistory.setPredicate(record -> HistoryService.matchesFilter(record, query, null));
+        filteredHistory.setPredicate(record -> HistoryService.matchesFilter(record, query, activeStatusFilter));
+    }
+
+    private void applySortOrder() {
+        if (sortedHistory == null) {
+            return;
+        }
+        sortedHistory.setComparator(HistoryService.comparatorFor(getSelectedSortOrder()));
+    }
+
+    private HistoryService.SortOrder getSelectedSortOrder() {
+        if (sortOrderComboBox == null || sortOrderComboBox.getValue() == null) {
+            return HistoryService.SortOrder.NEWEST_FIRST;
+        }
+        return sortOrderComboBox.getValue();
     }
 
     private void updateHeaderState() {
@@ -297,8 +502,65 @@ public class TransferHistoryController implements NavigationAware {
             return;
         }
         int totalCount = services.historyService().getRecords().size();
-        historyCountBadge.setText(totalCount + (totalCount == 1 ? " Item" : " Items"));
+        int visibleCount = sortedHistory != null ? sortedHistory.size() : totalCount;
+        if (visibleCount != totalCount) {
+            historyCountBadge.setText(visibleCount + " of " + totalCount);
+        } else {
+            historyCountBadge.setText(totalCount + (totalCount == 1 ? " Item" : " Items"));
+        }
         historyCountBadge.setTone(totalCount > 0 ? SemanticTone.INFO : SemanticTone.NEUTRAL);
+
+        if (clearHistoryButton != null) {
+            boolean busy = services.historyService().loadingProperty().get();
+            clearHistoryButton.setDisable(totalCount == 0 || busy);
+        }
+    }
+
+    private void updateLoadingState(boolean isLoading) {
+        if (refreshButton != null) {
+            refreshButton.setDisable(isLoading);
+        }
+        if (clearHistoryButton != null && services != null) {
+            clearHistoryButton.setDisable(isLoading || services.historyService().getRecords().isEmpty());
+        }
+    }
+
+    private void updateEmptyStateCopy() {
+        if (emptyStatePane == null || services == null) {
+            return;
+        }
+        int totalCount = services.historyService().getRecords().size();
+        if (totalCount == 0) {
+            configureEmptyStateForNoHistory();
+        } else {
+            emptyStatePane.setTitle("No matching history records");
+            emptyStatePane.setDescription("No saved transfers match the active search query or status filter.");
+            emptyStatePane.setPrimaryAction("Reset Filters", UiIcons.IconType.REFRESH, this::resetFilters);
+        }
+    }
+
+    private void configureEmptyStateForNoHistory() {
+        if (emptyStatePane == null) {
+            return;
+        }
+        emptyStatePane.setTitle("No transfer history recorded");
+        emptyStatePane.setDescription(
+            "Completed, failed, and cancelled transfers will persist here with timestamps, duration, and status."
+        );
+        emptyStatePane.setPrimaryAction("Back to Dashboard", UiIcons.IconType.DASHBOARD, () -> {
+            if (navigator != null) {
+                navigator.navigateTo(NavItemId.DASHBOARD);
+            }
+        });
+    }
+
+    public void resetFilters() {
+        if (searchField != null) {
+            searchField.clear();
+        }
+        Button allBtn = statusFilterBar != null && !statusFilterBar.getChildren().isEmpty()
+            && statusFilterBar.getChildren().get(0) instanceof Button b ? b : null;
+        selectStatusFilter(null, allBtn);
     }
 
     private void updateFeedbackBanner() {
@@ -308,10 +570,7 @@ public class TransferHistoryController implements NavigationAware {
         HistoryService historyService = services.historyService();
         String error = historyService.getLastError();
         if (error != null && !error.isBlank()) {
-            statusBanner.setTone(SemanticTone.ERROR)
-                .setTitle("History Storage Error")
-                .setMessage(error)
-                .show();
+            showErrorBanner("History Storage Error", error);
             return;
         }
         String warning = historyService.getWarningMessage();
@@ -326,6 +585,27 @@ public class TransferHistoryController implements NavigationAware {
         statusBanner.setManaged(false);
     }
 
+    private void showErrorBanner(String title, String message) {
+        if (statusBanner != null) {
+            statusBanner.setTone(SemanticTone.ERROR)
+                .setTitle(title)
+                .setMessage(message != null ? message : "Unable to update persistent transfer history.")
+                .show();
+        }
+    }
+
+    private static void runOnFx(Runnable action) {
+        if (Platform.isFxApplicationThread()) {
+            action.run();
+        } else {
+            try {
+                Platform.runLater(action);
+            } catch (IllegalStateException ignored) {
+                action.run();
+            }
+        }
+    }
+
     public TableView<TransferRecord> getHistoryTable() {
         return historyTable;
     }
@@ -334,12 +614,28 @@ public class TransferHistoryController implements NavigationAware {
         return searchField;
     }
 
+    public ComboBox<HistoryService.SortOrder> getSortOrderComboBox() {
+        return sortOrderComboBox;
+    }
+
+    public Button getRefreshButton() {
+        return refreshButton;
+    }
+
+    public Button getClearHistoryButton() {
+        return clearHistoryButton;
+    }
+
     public FeedbackBanner getStatusBanner() {
         return statusBanner;
     }
 
     public StatusBadge getHistoryCountBadge() {
         return historyCountBadge;
+    }
+
+    public TransferHistoryStatus getActiveStatusFilter() {
+        return activeStatusFilter;
     }
 
     private static final class StyledTextCell extends TableCell<TransferRecord, String> {
