@@ -8,7 +8,6 @@ import com.syncshare.history.TransferHistoryStatus;
 import com.syncshare.history.TransferRecord;
 import com.syncshare.model.TransferDirection;
 import com.syncshare.monitoring.MonitoredTransfer;
-import com.syncshare.monitoring.TransferMonitorState;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
