@@ -169,7 +169,7 @@ public class MainController {
         );
         updateConnectionIndicators(services.connectionService().getStatus());
 
-        services.transferService().activeCountProperty().addListener((obs, oldVal, count) -> {
+        services.transferMonitoringService().activeCountProperty().addListener((obs, oldVal, count) -> {
             if (sidebarNavigation != null) {
                 sidebarNavigation.setBadgeCount(NavItemId.ACTIVE_TRANSFERS, count.intValue());
             }
@@ -177,7 +177,7 @@ public class MainController {
         if (sidebarNavigation != null) {
             sidebarNavigation.setBadgeCount(
                 NavItemId.ACTIVE_TRANSFERS,
-                services.transferService().activeCountProperty().get()
+                services.transferMonitoringService().activeCountProperty().get()
             );
         }
 

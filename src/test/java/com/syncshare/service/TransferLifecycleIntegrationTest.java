@@ -352,7 +352,8 @@ class TransferLifecycleIntegrationTest {
                 stage.setScene(loaded.scene());
                 MainController mainController = loaded.controller();
                 assertTrue(mainController.navigateTo(NavItemId.ACTIVE_TRANSFERS).success());
-                assertEquals(1, monitoring.listenerCount());
+                // Dashboard (cached on startup) + Active Transfers are both subscribed
+                assertEquals(2, monitoring.listenerCount());
 
                 mainController.shutdown();
                 assertEquals(0, monitoring.listenerCount());
