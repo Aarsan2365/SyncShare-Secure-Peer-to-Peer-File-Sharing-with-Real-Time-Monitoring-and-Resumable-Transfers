@@ -64,7 +64,7 @@ public record NavDestination(
                 NavItemId.TRANSFER_HISTORY,
                 "Transfer History",
                 "Transfer History",
-                "Audit completed, verified, rejected, and interrupted transfers",
+                "Persistent log of completed, failed, and cancelled peer transfers",
                 UiIcons.IconType.CLOCK,
                 "/com/syncshare/ui/views/transfer-history-view.fxml"
             ),

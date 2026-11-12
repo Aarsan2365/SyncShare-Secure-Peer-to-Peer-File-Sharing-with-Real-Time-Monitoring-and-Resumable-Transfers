@@ -116,10 +116,16 @@ public class TransferMonitoringService implements TransferSessionListener {
         }
     }
 
+    @FunctionalInterface
+    public interface TerminalTransferListener {
+        void onTransferTerminal(MonitoredTransfer snapshot);
+    }
+
     private final LongSupplier nanoClock;
     private final long uiThrottleNanos;
     private final ConcurrentHashMap<String, TransferEntry> entries = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<TransferMonitorListener> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<TerminalTransferListener> terminalListeners = new CopyOnWriteArrayList<>();
 
     private final ObservableList<MonitoredTransfer> activeTransfers = FXCollections.observableArrayList();
     private final ObservableList<MonitoredTransfer> unmodifiableActiveTransfers =
@@ -234,6 +240,24 @@ public class TransferMonitoringService implements TransferSessionListener {
         return listeners.size();
     }
 
+    public boolean addTerminalListener(TerminalTransferListener listener) {
+        if (listener == null || shutDown.get()) {
+            return false;
+        }
+        return terminalListeners.addIfAbsent(listener);
+    }
+
+    public boolean removeTerminalListener(TerminalTransferListener listener) {
+        if (listener == null) {
+            return false;
+        }
+        return terminalListeners.remove(listener);
+    }
+
+    public int terminalListenerCount() {
+        return terminalListeners.size();
+    }
+
     public void registerQueued(
         String transferId,
         TransferDirection direction,
@@ -291,6 +315,7 @@ public class TransferMonitoringService implements TransferSessionListener {
         }
         Runnable handlerToRun = null;
         boolean changed = false;
+        MonitoredTransfer terminalSnapshot = null;
         Instant now = Instant.now();
         synchronized (entry) {
             if (!entry.state.isTerminal() && entry.state.canTransitionTo(TransferMonitorState.CANCELLED)) {
@@ -303,12 +328,14 @@ public class TransferMonitoringService implements TransferSessionListener {
                 handlerToRun = entry.cancelHandler;
                 entry.cancelHandler = null;
                 changed = true;
+                terminalSnapshot = entry.snapshot(nanoClock.getAsLong());
             }
         }
         if (handlerToRun != null) {
             runCancelSafely(handlerToRun);
         }
         if (changed) {
+            notifyTerminalListeners(terminalSnapshot);
             requestPublish(true);
         }
         return changed;
@@ -498,6 +525,7 @@ public class TransferMonitoringService implements TransferSessionListener {
             now
         );
         boolean transitioned = false;
+        MonitoredTransfer terminalSnapshot = null;
         synchronized (entry) {
             if (entry.state.isTerminal()) {
                 return;
@@ -524,8 +552,10 @@ public class TransferMonitoringService implements TransferSessionListener {
             entry.speedEstimator.markInactive();
             entry.cancelHandler = null;
             transitioned = true;
+            terminalSnapshot = entry.snapshot(nanoClock.getAsLong());
         }
         if (transitioned) {
+            notifyTerminalListeners(terminalSnapshot);
             trimRecentHistory();
             requestPublish(true);
         }
@@ -554,6 +584,7 @@ public class TransferMonitoringService implements TransferSessionListener {
             now
         );
         boolean transitioned = false;
+        MonitoredTransfer terminalSnapshot = null;
         synchronized (entry) {
             if (entry.state.isTerminal()) {
                 return;
@@ -573,8 +604,10 @@ public class TransferMonitoringService implements TransferSessionListener {
             entry.speedEstimator.markInactive();
             entry.cancelHandler = null;
             transitioned = true;
+            terminalSnapshot = entry.snapshot(nanoClock.getAsLong());
         }
         if (transitioned) {
+            notifyTerminalListeners(terminalSnapshot);
             trimRecentHistory();
             requestPublish(true);
         }
@@ -602,6 +635,7 @@ public class TransferMonitoringService implements TransferSessionListener {
             now
         );
         boolean transitioned = false;
+        MonitoredTransfer terminalSnapshot = null;
         synchronized (entry) {
             if (entry.state.isTerminal()) {
                 return;
@@ -621,8 +655,10 @@ public class TransferMonitoringService implements TransferSessionListener {
             entry.speedEstimator.markInactive();
             entry.cancelHandler = null;
             transitioned = true;
+            terminalSnapshot = entry.snapshot(nanoClock.getAsLong());
         }
         if (transitioned) {
+            notifyTerminalListeners(terminalSnapshot);
             trimRecentHistory();
             requestPublish(true);
         }
@@ -649,18 +685,25 @@ public class TransferMonitoringService implements TransferSessionListener {
         Instant now = item.updatedAt() != null ? item.updatedAt() : Instant.now();
         long nowNanos = nanoClock.getAsLong();
 
-        TransferEntry entry = getOrCreateEntry(
-            item.id(),
-            item.direction(),
-            item.fileName(),
-            item.totalBytes(),
-            item.peerAddress(),
-            mapped,
-            item.note(),
-            now
-        );
+        AtomicBoolean createdNew = new AtomicBoolean(false);
+        TransferEntry entry = entries.computeIfAbsent(item.id(), id -> {
+            createdNew.set(true);
+            return new TransferEntry(
+                id,
+                item.direction(),
+                item.fileName(),
+                item.totalBytes(),
+                item.peerAddress(),
+                mapped,
+                item.note(),
+                now,
+                nanoClock
+            );
+        });
 
+        MonitoredTransfer terminalSnapshot = null;
         synchronized (entry) {
+            boolean wasTerminal = !createdNew.get() && entry.state.isTerminal();
             if (entry.state.isTerminal() && !mapped.isTerminal()) {
                 return;
             }
@@ -691,6 +734,12 @@ public class TransferMonitoringService implements TransferSessionListener {
             } else if (mapped == TransferMonitorState.RUNNING) {
                 entry.speedEstimator.recordBytes(entry.transferredBytes, nowNanos);
             }
+            if (!wasTerminal && entry.state.isTerminal()) {
+                terminalSnapshot = entry.snapshot(nowNanos);
+            }
+        }
+        if (terminalSnapshot != null) {
+            notifyTerminalListeners(terminalSnapshot);
         }
         requestPublish(true);
     }
@@ -714,6 +763,7 @@ public class TransferMonitoringService implements TransferSessionListener {
             return;
         }
         List<Runnable> cancelActions = new ArrayList<>();
+        List<MonitoredTransfer> terminalSnapshots = new ArrayList<>();
         Instant now = Instant.now();
         for (TransferEntry entry : entries.values()) {
             synchronized (entry) {
@@ -724,6 +774,7 @@ public class TransferMonitoringService implements TransferSessionListener {
                     entry.statusNote = "Cancelled on shutdown";
                     entry.errorMessage = "Application shutting down";
                     entry.speedEstimator.markInactive();
+                    terminalSnapshots.add(entry.snapshot(nanoClock.getAsLong()));
                 }
                 if (entry.cancelHandler != null) {
                     cancelActions.add(entry.cancelHandler);
@@ -734,10 +785,26 @@ public class TransferMonitoringService implements TransferSessionListener {
         for (Runnable action : cancelActions) {
             runCancelSafely(action);
         }
+        for (MonitoredTransfer snapshot : terminalSnapshots) {
+            notifyTerminalListeners(snapshot);
+        }
         if (maintenanceExecutor != null) {
             maintenanceExecutor.shutdownNow();
         }
         listeners.clear();
+        terminalListeners.clear();
+    }
+
+    private void notifyTerminalListeners(MonitoredTransfer snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        for (TerminalTransferListener listener : terminalListeners) {
+            try {
+                listener.onTransferTerminal(snapshot);
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     /**
