@@ -449,7 +449,7 @@ public class TransferHistoryController implements NavigationAware {
             && choice.get().getButtonData() == ButtonBar.ButtonData.OK_DONE;
     }
 
-    Alert createClearHistoryConfirmationDialog(int itemCount) {
+    public Alert createClearHistoryConfirmationDialog(int itemCount) {
         Window owner = transferHistoryRoot != null && transferHistoryRoot.getScene() != null
             ? transferHistoryRoot.getScene().getWindow()
             : null;
@@ -465,7 +465,7 @@ public class TransferHistoryController implements NavigationAware {
         );
     }
 
-    void setClearConfirmationOverride(BooleanSupplier handler) {
+    public void setClearConfirmationOverride(BooleanSupplier handler) {
         this.clearConfirmationOverride = handler;
     }
 
