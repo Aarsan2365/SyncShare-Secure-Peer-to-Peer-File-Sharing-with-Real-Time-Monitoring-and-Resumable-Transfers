@@ -2,6 +2,8 @@ package com.syncshare.service;
 
 import com.syncshare.events.TransferSessionListener;
 import com.syncshare.model.TransferDirection;
+import com.syncshare.model.TransferItem;
+import com.syncshare.model.TransferStatus;
 import com.syncshare.monitoring.MonitoredTransfer;
 import com.syncshare.monitoring.TransferMetricsCalculator;
 import com.syncshare.monitoring.TransferMonitorListener;
@@ -632,6 +634,78 @@ public class TransferMonitoringService implements TransferSessionListener {
             }
         });
         requestPublish(true);
+    }
+
+    /**
+     * Synchronizes an externally supplied {@link TransferItem} snapshot into the
+     * monitoring state (for example from legacy service calls or UI preview fixtures).
+     */
+    public void syncTransferItem(TransferItem item) {
+        if (shutDown.get() || item == null) {
+            return;
+        }
+        TransferMonitorState mapped = mapStatus(item.status());
+        Instant now = item.updatedAt() != null ? item.updatedAt() : Instant.now();
+        long nowNanos = nanoClock.getAsLong();
+
+        TransferEntry entry = getOrCreateEntry(
+            item.id(),
+            item.direction(),
+            item.fileName(),
+            item.totalBytes(),
+            item.peerAddress(),
+            mapped,
+            item.note(),
+            now
+        );
+
+        synchronized (entry) {
+            if (entry.state.isTerminal() && !mapped.isTerminal()) {
+                return;
+            }
+            if (entry.state != mapped && entry.state.canTransitionTo(mapped)) {
+                entry.state = mapped;
+            } else if (entry.state != mapped && mapped.isTerminal()) {
+                entry.state = mapped;
+            }
+            entry.fileName = sanitizeFileName(item.fileName());
+            entry.peerAddress = sanitizePeer(item.peerAddress());
+            entry.totalBytes = item.totalBytes();
+            entry.transferredBytes = TransferMetricsCalculator.clampTransferredBytes(
+                item.transferredBytes(),
+                item.totalBytes()
+            );
+            entry.updatedAt = now;
+            entry.statusNote = item.note() != null ? item.note() : "";
+            if (mapped == TransferMonitorState.FAILED || mapped == TransferMonitorState.CANCELLED) {
+                entry.errorMessage = item.note() != null ? item.note() : mapped.displayName();
+                entry.completedAt = now;
+                entry.speedEstimator.markInactive();
+                entry.cancelHandler = null;
+            } else if (mapped == TransferMonitorState.COMPLETED) {
+                entry.errorMessage = "";
+                entry.completedAt = now;
+                entry.speedEstimator.markInactive();
+                entry.cancelHandler = null;
+            } else if (mapped == TransferMonitorState.RUNNING) {
+                entry.speedEstimator.recordBytes(entry.transferredBytes, nowNanos);
+            }
+        }
+        requestPublish(true);
+    }
+
+    private static TransferMonitorState mapStatus(TransferStatus status) {
+        if (status == null) {
+            return TransferMonitorState.QUEUED;
+        }
+        return switch (status) {
+            case QUEUED -> TransferMonitorState.QUEUED;
+            case CONNECTING, AWAITING_APPROVAL -> TransferMonitorState.CONNECTING;
+            case TRANSFERRING, PAUSED -> TransferMonitorState.RUNNING;
+            case COMPLETED -> TransferMonitorState.COMPLETED;
+            case FAILED, REJECTED -> TransferMonitorState.FAILED;
+            case CANCELLED -> TransferMonitorState.CANCELLED;
+        };
     }
 
     public void shutdown() {

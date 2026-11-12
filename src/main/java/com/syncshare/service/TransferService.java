@@ -205,7 +205,7 @@ public class TransferService {
             Instant.now(),
             "Queued for mTLS 1.3 handshake"
         );
-        upsertActiveTransfer(queued);
+        upsertActiveTransferLocal(queued);
         monitoringService.registerQueued(
             transferId,
             TransferDirection.OUTGOING,
@@ -236,7 +236,7 @@ public class TransferService {
             ) {
                 monitoringService.onConnecting(id, direction, name, totalBytes, endpoint, statusNote);
                 if (!completion.isDone()) {
-                    upsertActiveTransfer(new TransferItem(
+                    upsertActiveTransferLocal(new TransferItem(
                         transferId,
                         name,
                         Math.max(0L, totalBytes),
@@ -262,7 +262,7 @@ public class TransferService {
             ) {
                 monitoringService.onStarted(id, direction, name, totalBytes, initialBytes, endpoint);
                 if (!completion.isDone()) {
-                    upsertActiveTransfer(new TransferItem(
+                    upsertActiveTransferLocal(new TransferItem(
                         transferId,
                         name,
                         Math.max(0L, totalBytes),
@@ -287,7 +287,7 @@ public class TransferService {
             ) {
                 monitoringService.onProgress(id, direction, name, transferredBytes, totalBytes);
                 if (!completion.isDone()) {
-                    upsertActiveTransfer(new TransferItem(
+                    upsertActiveTransferLocal(new TransferItem(
                         transferId,
                         name,
                         Math.max(0L, totalBytes),
@@ -320,7 +320,7 @@ public class TransferService {
                         Instant.now(),
                         "Transfer completed and verified"
                     );
-                    moveToHistory(finished);
+                    moveToHistoryLocal(finished);
                     completion.complete(finished);
                 }
             }
@@ -355,7 +355,7 @@ public class TransferService {
                         Instant.now(),
                         msg
                     );
-                    moveToHistory(failed);
+                    moveToHistoryLocal(failed);
                     completion.complete(failed);
                 }
             }
@@ -379,7 +379,7 @@ public class TransferService {
                         Instant.now(),
                         reason != null && !reason.isBlank() ? reason : "Cancelled by user"
                     );
-                    moveToHistory(cancelled);
+                    moveToHistoryLocal(cancelled);
                     completion.complete(cancelled);
                 }
             }
@@ -515,6 +515,16 @@ public class TransferService {
     }
 
     public void upsertActiveTransfer(TransferItem item) {
+        upsertActiveTransferLocal(item);
+        monitoringService.syncTransferItem(item);
+    }
+
+    public void moveToHistory(TransferItem finishedItem) {
+        moveToHistoryLocal(finishedItem);
+        monitoringService.syncTransferItem(finishedItem);
+    }
+
+    private void upsertActiveTransferLocal(TransferItem item) {
         Objects.requireNonNull(item, "item");
         activeSnapshots.put(item.id(), item);
         runOnFxThread(() -> {
@@ -528,7 +538,7 @@ public class TransferService {
         });
     }
 
-    public void moveToHistory(TransferItem finishedItem) {
+    private void moveToHistoryLocal(TransferItem finishedItem) {
         Objects.requireNonNull(finishedItem, "finishedItem");
         activeSnapshots.remove(finishedItem.id());
         runOnFxThread(() -> {
