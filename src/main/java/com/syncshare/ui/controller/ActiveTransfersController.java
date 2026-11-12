@@ -109,6 +109,7 @@ public class ActiveTransfersController implements NavigationAware {
     /**
      * Releases monitoring subscriptions and UI listeners when the view is torn down.
      */
+    @Override
     public void dispose() {
         if (monitorSubscription != null) {
             try {

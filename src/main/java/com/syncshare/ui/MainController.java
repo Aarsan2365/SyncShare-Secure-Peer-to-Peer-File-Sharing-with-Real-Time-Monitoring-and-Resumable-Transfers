@@ -285,6 +285,9 @@ public class MainController {
 
     public void shutdown() {
         setStatus("Status: Shutting down...", SemanticTone.WARNING);
+        if (viewNavigator != null) {
+            viewNavigator.dispose();
+        }
         services.shutdown();
     }
 }

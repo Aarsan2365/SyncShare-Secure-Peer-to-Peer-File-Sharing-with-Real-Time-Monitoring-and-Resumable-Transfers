@@ -47,7 +47,7 @@ public class TransferMonitoringService implements TransferSessionListener {
         final String transferId;
         final TransferDirection direction;
         final TransferSpeedEstimator speedEstimator;
-        final Instant startedAt;
+        Instant startedAt;
 
         String fileName;
         String peerAddress;
@@ -402,6 +402,7 @@ public class TransferMonitoringService implements TransferSessionListener {
                     return;
                 }
                 entry.state = TransferMonitorState.RUNNING;
+                entry.startedAt = now;
             }
             if (fileName != null && !fileName.isBlank()) {
                 entry.fileName = fileName;
