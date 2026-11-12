@@ -4,10 +4,14 @@ import javafx.application.Platform;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public final class JavaFxToolkitExtension implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
 
     private static final String STORE_KEY = JavaFxToolkitExtension.class.getName();
+    private static Path isolatedDataDir;
 
     @Override
     public void beforeAll(ExtensionContext context) throws Exception {
@@ -34,6 +39,15 @@ public final class JavaFxToolkitExtension implements BeforeAllCallback, Extensio
             "javafx.cachedir",
             Path.of("target", "javafx-cache").toAbsolutePath().toString()
         );
+        if (System.getProperty("syncshare.historyFile") == null
+                && System.getProperty("syncshare.dataDir") == null) {
+            try {
+                isolatedDataDir = Files.createTempDirectory("syncshare-ui-test-");
+                System.setProperty("syncshare.dataDir", isolatedDataDir.toString());
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to create isolated test data directory", e);
+            }
+        }
 
         CountDownLatch started = new CountDownLatch(1);
         try {
@@ -54,6 +68,17 @@ public final class JavaFxToolkitExtension implements BeforeAllCallback, Extensio
     @Override
     public void close() {
         Platform.exit();
+        if (isolatedDataDir != null && Files.exists(isolatedDataDir)) {
+            try (Stream<Path> walk = Files.walk(isolatedDataDir)) {
+                walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                    try {
+                        Files.deleteIfExists(path);
+                    } catch (IOException ignored) {
+                    }
+                });
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     @FunctionalInterface
