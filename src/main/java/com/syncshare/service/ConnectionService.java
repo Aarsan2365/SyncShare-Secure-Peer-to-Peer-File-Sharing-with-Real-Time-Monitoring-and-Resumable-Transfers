@@ -1,9 +1,11 @@
 package com.syncshare.service;
 
 import com.syncshare.approval.ApprovalHandler;
+import com.syncshare.events.TransferSessionListener;
 import com.syncshare.model.ConnectionState;
 import com.syncshare.model.ConnectionStatus;
 import com.syncshare.model.IncomingRequestItem;
+import com.syncshare.model.TransferDirection;
 import com.syncshare.network.PeerServer;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -38,6 +40,7 @@ public class ConnectionService {
     private final SettingsService settingsService;
     private final DeviceInfoService deviceInfoService;
     private final ServerStarter serverStarter;
+    private final TransferMonitoringService monitoringService;
 
     private final ReadOnlyObjectWrapper<ConnectionStatus> status =
         new ReadOnlyObjectWrapper<>(this, "status");
@@ -54,11 +57,19 @@ public class ConnectionService {
     private volatile boolean listening;
 
     public ConnectionService(SettingsService settingsService, DeviceInfoService deviceInfoService) {
-        this(settingsService, deviceInfoService, (port, handler) -> {
-            PeerServer server = new PeerServer(port, handler);
-            server.start();
-            return server;
-        });
+        this(settingsService, deviceInfoService, (TransferMonitoringService) null);
+    }
+
+    public ConnectionService(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        TransferMonitoringService monitoringService
+    ) {
+        this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
+        this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
+        this.monitoringService = monitoringService;
+        this.serverStarter = (port, handler) -> startManagedPeerServer(port, handler);
+        initCommon();
     }
 
     public ConnectionService(
@@ -68,8 +79,12 @@ public class ConnectionService {
     ) {
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
+        this.monitoringService = null;
         this.serverStarter = Objects.requireNonNull(serverStarter, "serverStarter");
+        initCommon();
+    }
 
+    private void initCommon() {
         this.settingsService.settingsProperty().addListener((obs, oldVal, newVal) -> {
             if (!listening) {
                 refreshStatus();
@@ -80,6 +95,76 @@ public class ConnectionService {
         if (this.settingsService.getSettings().autoStartReceiver() && this.deviceInfoService.isTlsConfigured()) {
             startReceiver();
         }
+    }
+
+    private PeerServer startManagedPeerServer(int port, ApprovalHandler handler) throws IOException {
+        TransferSessionListener sessionListener = monitoringService != null
+            ? new TransferSessionListener() {
+                @Override
+                public void onConnecting(
+                    String transferId,
+                    TransferDirection direction,
+                    String fileName,
+                    long totalBytes,
+                    String peerAddress,
+                    String statusNote
+                ) {
+                    monitoringService.onConnecting(transferId, direction, fileName, totalBytes, peerAddress, statusNote);
+                    AutoCloseable current = activeServer;
+                    if (current instanceof PeerServer peerServer) {
+                        monitoringService.registerCancelHandler(transferId, () -> peerServer.cancelTransfer(transferId));
+                    }
+                }
+
+                @Override
+                public void onStarted(
+                    String transferId,
+                    TransferDirection direction,
+                    String fileName,
+                    long totalBytes,
+                    long initialBytes,
+                    String peerAddress
+                ) {
+                    monitoringService.onStarted(transferId, direction, fileName, totalBytes, initialBytes, peerAddress);
+                }
+
+                @Override
+                public void onProgress(
+                    String transferId,
+                    TransferDirection direction,
+                    String fileName,
+                    long transferredBytes,
+                    long totalBytes
+                ) {
+                    monitoringService.onProgress(transferId, direction, fileName, transferredBytes, totalBytes);
+                }
+
+                @Override
+                public void onCompleted(String transferId, TransferDirection direction, String fileName) {
+                    monitoringService.onCompleted(transferId, direction, fileName);
+                }
+
+                @Override
+                public void onFailed(
+                    String transferId,
+                    TransferDirection direction,
+                    String fileName,
+                    String reason,
+                    Exception error
+                ) {
+                    monitoringService.onFailed(transferId, direction, fileName, reason, error);
+                }
+
+                @Override
+                public void onCancelled(String transferId, TransferDirection direction, String fileName, String reason) {
+                    monitoringService.onCancelled(transferId, direction, fileName, reason);
+                }
+            }
+            : TransferSessionListener.NO_OP;
+
+        PeerServer server = new PeerServer(port, handler, sessionListener);
+        server.start();
+        return server;
     }
 
     public ConnectionStatus getStatus() {
