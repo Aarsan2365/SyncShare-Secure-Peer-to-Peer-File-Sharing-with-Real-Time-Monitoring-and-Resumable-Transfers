@@ -1,15 +1,20 @@
-
 package com.syncshare.network;
 
 import com.syncshare.approval.ApprovalHandler;
 import com.syncshare.events.ConsoleTransferListener;
-import com.syncshare.transfer.FileReceiver;
+import com.syncshare.events.TransferSessionListener;
 import com.syncshare.security.TlsSupport;
+import com.syncshare.transfer.FileReceiver;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.*;
+import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class PeerServer implements AutoCloseable {
 
@@ -17,6 +22,8 @@ public class PeerServer implements AutoCloseable {
     private final Thread listenerThread;
     private final ThreadPoolExecutor workers;
     private final ApprovalHandler approvalHandler;
+    private final TransferSessionListener sessionListener;
+    private final ConcurrentHashMap<String, Socket> activeTransferSockets = new ConcurrentHashMap<>();
 
     private volatile boolean running = false;
     private volatile boolean closed = false;
@@ -25,8 +32,19 @@ public class PeerServer implements AutoCloseable {
             int port,
             ApprovalHandler approvalHandler
     ) throws IOException {
+        this(port, approvalHandler, TransferSessionListener.NO_OP);
+    }
+
+    public PeerServer(
+            int port,
+            ApprovalHandler approvalHandler,
+            TransferSessionListener sessionListener
+    ) throws IOException {
 
         this.approvalHandler = approvalHandler;
+        this.sessionListener = sessionListener != null
+            ? sessionListener
+            : TransferSessionListener.NO_OP;
 
         this.workers = new ThreadPoolExecutor(
             4,
@@ -67,6 +85,10 @@ public class PeerServer implements AutoCloseable {
         );
     }
 
+    public int getLocalPort() {
+        return serverSocket.getLocalPort();
+    }
+
     private void listen() {
 
         while (running && !closed && !serverSocket.isClosed() && !Thread.currentThread().isInterrupted()) {
@@ -87,6 +109,8 @@ public class PeerServer implements AutoCloseable {
     }
 
     private void dispatchClient(Socket client) {
+        String transferId = UUID.randomUUID().toString();
+        activeTransferSockets.put(transferId, client);
 
         try {
             workers.execute(() -> {
@@ -103,7 +127,9 @@ public class PeerServer implements AutoCloseable {
                     FileReceiver.receive(
                         client,
                         new ConsoleTransferListener(),
-                        approvalHandler
+                        approvalHandler,
+                        transferId,
+                        sessionListener
                     );
 
                 } catch (Exception e) {
@@ -111,10 +137,13 @@ public class PeerServer implements AutoCloseable {
                         "Incoming transfer failed: "
                         + e.getMessage()
                     );
+                } finally {
+                    activeTransferSockets.remove(transferId, client);
                 }
             });
 
         } catch (RejectedExecutionException e) {
+            activeTransferSockets.remove(transferId, client);
 
             if (!closed && !workers.isShutdown()) {
                 System.out.println(
@@ -125,10 +154,23 @@ public class PeerServer implements AutoCloseable {
             closeQuietly(client);
 
         } catch (RuntimeException | Error e) {
+            activeTransferSockets.remove(transferId, client);
 
             closeQuietly(client);
             throw e;
         }
+    }
+
+    public boolean cancelTransfer(String transferId) {
+        if (transferId == null || transferId.isBlank()) {
+            return false;
+        }
+        Socket socket = activeTransferSockets.remove(transferId);
+        if (socket != null) {
+            closeQuietly(socket);
+            return true;
+        }
+        return false;
     }
 
     public boolean isRunning() {
@@ -151,6 +193,8 @@ public class PeerServer implements AutoCloseable {
             }
         } catch (IOException ignored) {
         } finally {
+            activeTransferSockets.values().forEach(PeerServer::closeQuietly);
+            activeTransferSockets.clear();
             listenerThread.interrupt();
             workers.shutdownNow();
         }
