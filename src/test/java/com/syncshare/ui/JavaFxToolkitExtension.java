@@ -2,6 +2,7 @@ package com.syncshare.ui;
 
 import javafx.application.Platform;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
 import java.io.IOException;
@@ -19,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Starts the JavaFX toolkit once per test JVM and shuts it down cleanly after
  * all test classes complete.
  */
-public final class JavaFxToolkitExtension implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
+public final class JavaFxToolkitExtension implements BeforeAllCallback, BeforeEachCallback, ExtensionContext.Store.CloseableResource {
 
     private static final String STORE_KEY = JavaFxToolkitExtension.class.getName();
     private static Path isolatedDataDir;
@@ -31,6 +32,13 @@ public final class JavaFxToolkitExtension implements BeforeAllCallback, Extensio
             startToolkit();
             return this;
         }, JavaFxToolkitExtension.class);
+    }
+
+    @Override
+    public void beforeEach(ExtensionContext context) throws Exception {
+        if (isolatedDataDir != null) {
+            Files.deleteIfExists(isolatedDataDir.resolve("transfer-history.json"));
+        }
     }
 
     private static void startToolkit() {
