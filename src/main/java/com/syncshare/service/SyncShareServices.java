@@ -47,8 +47,8 @@ public final class SyncShareServices {
         SettingsService settings = new SettingsService();
         DeviceInfoService deviceInfo = new DeviceInfoService(settings);
         TransferMonitoringService monitoring = new TransferMonitoringService();
-        ConnectionService connection = new ConnectionService(settings, deviceInfo, monitoring);
         TransferService transfers = new TransferService(monitoring);
+        ConnectionService connection = new ConnectionService(settings, deviceInfo, transfers, monitoring);
         return new SyncShareServices(settings, deviceInfo, connection, transfers, monitoring);
     }
 

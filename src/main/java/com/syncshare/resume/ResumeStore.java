@@ -1,6 +1,7 @@
 // src/main/java/com/syncshare/resume/ResumeStore.java
 package com.syncshare.resume;
 
+import com.syncshare.service.ReceiveDestinationValidator;
 import com.syncshare.transfer.HashUtils;
 
 import java.io.*;
@@ -52,7 +53,7 @@ public final class ResumeStore implements AutoCloseable {
 
         part = resumeFolder.resolve(id + ".part");
         checkpoint = resumeFolder.resolve(id + ".properties");
-        destination = folder.resolve(id + "-" + name);
+        destination = ReceiveDestinationValidator.resolveSafeFile(folder, id + "-" + name);
 
         lockChannel = FileChannel.open(
             resumeFolder.resolve(id + ".lock"),
@@ -279,11 +280,13 @@ public final class ResumeStore implements AutoCloseable {
             data.close();
             data = null;
 
+            Path finalDestination = ReceiveDestinationValidator.resolveNonOverwritingPath(destination);
             Files.move(
                 part,
-                destination,
-                StandardCopyOption.REPLACE_EXISTING
+                finalDestination
             );
+            Files.deleteIfExists(checkpoint);
+            return finalDestination;
         }
 
         Files.deleteIfExists(checkpoint);

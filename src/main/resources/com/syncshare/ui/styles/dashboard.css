@@ -166,6 +166,45 @@
     -fx-text-fill: -ss-text-muted;
 }
 
+/* Send Files Summary & Live Status Panels */
+.send-file-summary {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-padding: 12px 14px;
+    -fx-spacing: 12px;
+    -fx-alignment: center-left;
+}
+
+.send-file-summary-ready {
+    -fx-background-color: -ss-success-50;
+    -fx-border-color: -ss-success-border;
+}
+
+.send-file-summary-error {
+    -fx-background-color: -ss-error-50;
+    -fx-border-color: -ss-error-border;
+}
+
+.send-file-size {
+    -fx-font-family: "Monospaced";
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ss-navy-900;
+}
+
+.send-status-panel {
+    -fx-background-color: -ss-surface-subtle;
+    -fx-border-color: -ss-border-subtle;
+    -fx-border-width: 1px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-padding: 14px 16px;
+    -fx-spacing: 10px;
+}
+
 /* Quick Action Surface */
 .quick-actions-flow {
     -fx-padding: 2px 0 0 0;
