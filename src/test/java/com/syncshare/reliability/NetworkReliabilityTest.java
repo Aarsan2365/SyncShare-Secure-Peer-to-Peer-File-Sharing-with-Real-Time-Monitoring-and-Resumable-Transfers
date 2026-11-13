@@ -1,12 +1,7 @@
 package com.syncshare.reliability;
 
-import com.syncshare.events.TransferListener;
-import com.syncshare.model.AppSettings;
-import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
-import com.syncshare.monitoring.MonitoredTransfer;
-import com.syncshare.monitoring.TransferMonitorState;
 import com.syncshare.service.DeviceInfoService;
 import com.syncshare.service.PeerDiscoveryManager;
 import com.syncshare.service.SettingsService;
@@ -19,10 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
-import java.io.EOFException;
-import java.io.IOException;
 import java.net.BindException;
 import java.net.ConnectException;
 import java.net.SocketException;

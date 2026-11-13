@@ -3,7 +3,6 @@ package com.syncshare.reliability;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import java.io.EOFException;
-import java.io.FileNotFoundException;
 import java.io.InterruptedIOException;
 import java.net.BindException;
 import java.net.ConnectException;
@@ -12,9 +11,6 @@ import java.net.PortUnreachableException;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.NotDirectoryException;
 import java.security.cert.CertificateException;
 
 /**

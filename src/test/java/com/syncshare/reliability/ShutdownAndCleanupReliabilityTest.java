@@ -1,6 +1,5 @@
 package com.syncshare.reliability;
 
-import com.syncshare.history.JsonTransferHistoryRepository;
 import com.syncshare.model.AppSettings;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
@@ -24,7 +23,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;

@@ -5,7 +5,6 @@ import com.syncshare.history.TransferHistoryDirection;
 import com.syncshare.history.TransferHistoryStatus;
 import com.syncshare.history.TransferRecord;
 import com.syncshare.model.AppSettings;
-import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
 import com.syncshare.service.ConnectionService;

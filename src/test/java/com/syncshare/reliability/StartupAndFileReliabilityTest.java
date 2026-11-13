@@ -1,13 +1,9 @@
 package com.syncshare.reliability;
 
 import com.syncshare.model.AppSettings;
-import com.syncshare.model.TransferItem;
-import com.syncshare.model.TransferStatus;
 import com.syncshare.service.ReceiveDestinationValidator;
 import com.syncshare.service.SettingsRepository;
 import com.syncshare.service.SettingsService;
-import com.syncshare.service.SettingsValidator;
-import com.syncshare.service.TransferMonitoringService;
 import com.syncshare.service.TransferService;
 import com.syncshare.ui.JavaFxToolkitExtension;
 import org.junit.jupiter.api.AfterEach;
