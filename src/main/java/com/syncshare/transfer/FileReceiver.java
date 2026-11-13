@@ -250,6 +250,10 @@ public class FileReceiver {
                 throw new IOException("Unsafe peer destination directory: " + folder);
             }
 
+            if (!ReceiveDestinationValidator.hasUsableSpace(folder, fileSize)) {
+                throw new IOException("Insufficient storage space on destination drive for: " + safeName);
+            }
+
             try (ResumeStore store = new ResumeStore(
                     folder,
                     safeName,

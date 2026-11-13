@@ -89,6 +89,14 @@ public class CentralErrorHandler {
     }
 
     /**
+     * Clears recent error history and timestamps for testing purposes.
+     */
+    public void clearRecentErrors() {
+        recentErrorTimestamps.clear();
+        latestError.set(null);
+    }
+
+    /**
      * Returns the most recent error recorded by this handler.
      */
     public AppError getLatestError() {

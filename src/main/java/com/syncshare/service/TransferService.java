@@ -7,6 +7,7 @@ import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
 import com.syncshare.network.Protocol;
 import com.syncshare.network.TcpClient;
+import com.syncshare.reliability.CentralErrorHandler;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.ReadOnlyDoubleWrapper;
@@ -21,14 +22,18 @@ import javafx.collections.ObservableList;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import java.io.EOFException;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.net.ConnectException;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
@@ -336,6 +341,30 @@ public class TransferService implements OutgoingTransferGateway {
             );
         }
 
+        try (InputStream in = Files.newInputStream(resolved)) {
+            in.readNBytes(1);
+        } catch (AccessDeniedException e) {
+            return new FileSummary(
+                false,
+                displayName,
+                0L,
+                "--",
+                "Permission Denied",
+                "Permission denied accessing selected file.",
+                resolved
+            );
+        } catch (IOException e) {
+            return new FileSummary(
+                false,
+                displayName,
+                0L,
+                "--",
+                "Unreadable",
+                "Selected file cannot be read: " + e.getMessage(),
+                resolved
+            );
+        }
+
         long sizeBytes;
         try {
             sizeBytes = Files.size(resolved);
@@ -605,6 +634,20 @@ public class TransferService implements OutgoingTransferGateway {
                 return finishCancelled(ctx, observer);
             }
 
+            if (!Files.exists(ctx.normalizedFile)) {
+                throw new NoSuchFileException(ctx.normalizedFile.toString());
+            }
+            if (!Files.isRegularFile(ctx.normalizedFile)) {
+                throw new IOException("Path is not a regular file: " + ctx.normalizedFile);
+            }
+            try (InputStream in = Files.newInputStream(ctx.normalizedFile)) {
+                in.readNBytes(1);
+            } catch (AccessDeniedException e) {
+                throw e;
+            } catch (IOException e) {
+                throw new IOException("Cannot read source file: " + ctx.normalizedFile, e);
+            }
+
             upsertActiveTransferLocal(ctx.latestItem.get());
             observer.onStageChanged(
                 TransferStatus.QUEUED,
@@ -809,10 +852,9 @@ public class TransferService implements OutgoingTransferGateway {
             String hostOnly = ctx.peerAddress.substring(0, ctx.peerAddress.lastIndexOf(':'));
             int port = Integer.parseInt(ctx.peerAddress.substring(ctx.peerAddress.lastIndexOf(':') + 1));
 
-            try {
-                if (sendTransport != null) {
-                    sendTransport.send(hostOnly, port, ctx.normalizedFile, legacyListener);
-                } else {
+            if (sendTransport != null) {
+                sendTransport.send(hostOnly, port, ctx.normalizedFile, legacyListener);
+            } else {
                     TcpClient.send(
                         hostOnly,
                         port,
@@ -873,8 +915,7 @@ public class TransferService implements OutgoingTransferGateway {
                 );
                 recordFailure(ctx, ctx.fileName, error, observer);
                 throw error;
-            }
-        } finally {
+            } finally {
             activeSockets.remove(ctx.transferId);
             ctx.workerThread.set(null);
             if (!ctx.terminalHandled.get() && isCancelled(ctx, cancelledSupplier)) {
@@ -988,6 +1029,7 @@ public class TransferService implements OutgoingTransferGateway {
             ctx.latestItem.set(failed);
             moveToHistoryLocal(failed);
             observer.onStageChanged(TransferStatus.FAILED, "Transfer Failed", msg);
+            CentralErrorHandler.getInstance().handleError(error, name);
             if (ctx.completion != null) {
                 ctx.completion.complete(failed);
             }
@@ -1054,6 +1096,12 @@ public class TransferService implements OutgoingTransferGateway {
         String endpoint = (peerHost != null && !peerHost.isBlank() ? peerHost : "peer")
             + (port > 0 ? ":" + port : "");
 
+        if (cause instanceof NoSuchFileException || cause instanceof FileNotFoundException) {
+            return "File does not exist: " + rawMsg;
+        }
+        if (cause instanceof AccessDeniedException) {
+            return "Permission denied accessing file: " + rawMsg;
+        }
         if (cause instanceof ConnectException) {
             return "Unable to connect to " + endpoint + " (" + rawMsg + "). Confirm the peer receiver is running.";
         }

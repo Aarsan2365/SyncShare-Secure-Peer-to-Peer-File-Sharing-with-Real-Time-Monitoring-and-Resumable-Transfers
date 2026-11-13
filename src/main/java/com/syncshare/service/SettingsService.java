@@ -1,6 +1,9 @@
 package com.syncshare.service;
 
 import com.syncshare.model.AppSettings;
+import com.syncshare.reliability.AppErrorCategory;
+import com.syncshare.reliability.AppException;
+import com.syncshare.reliability.CentralErrorHandler;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
@@ -80,12 +83,28 @@ public class SettingsService {
             settings.set(loaded);
             if (result.corrupted()) {
                 lastPersistenceError.set("Settings file was corrupted; defaults loaded.");
+                CentralErrorHandler.getInstance().handleError(
+                    new AppException(
+                        AppErrorCategory.INVALID_CONFIGURATION,
+                        "Settings file was corrupted; defaults loaded.",
+                        null
+                    ),
+                    "settings.json"
+                );
             }
         } catch (IOException e) {
             AppSettings fallback = AppSettings.defaults();
             applySystemProperties(fallback);
             settings.set(fallback);
             lastPersistenceError.set("Failed to load settings from disk: " + e.getMessage());
+            CentralErrorHandler.getInstance().handleError(
+                new AppException(
+                    AppErrorCategory.INVALID_CONFIGURATION,
+                    "Failed to load settings from disk; defaults loaded: " + e.getMessage(),
+                    e
+                ),
+                "settings.json"
+            );
         }
     }
 

@@ -147,6 +147,44 @@ public final class ReceiveDestinationValidator {
         return validateDirectory(parsed);
     }
 
+    public static boolean hasUsableSpace(Path directory, long requiredBytes) {
+        if (directory == null || requiredBytes <= 0) {
+            return true;
+        }
+        try {
+            Path target = Files.exists(directory) ? directory : directory.toAbsolutePath().getParent();
+            while (target != null && !Files.exists(target)) {
+                target = target.getParent();
+            }
+            if (target == null) {
+                return true;
+            }
+            java.nio.file.FileStore store = Files.getFileStore(target);
+            long usable = store.getUsableSpace();
+            if (usable > 0 && usable < requiredBytes) {
+                return false;
+            }
+            return true;
+        } catch (IOException | SecurityException ignored) {
+            return true;
+        }
+    }
+
+    public static ValidationResult validateStorageCapacity(Path directory, long requiredBytes) {
+        if (directory == null) {
+            return ValidationResult.error("Destination directory cannot be null.", null, false);
+        }
+        if (!hasUsableSpace(directory, requiredBytes)) {
+            return ValidationResult.error(
+                "Insufficient storage: Destination drive does not have enough free space ("
+                    + requiredBytes + " bytes required).",
+                directory,
+                false
+            );
+        }
+        return ValidationResult.ok(directory, "Storage capacity verified.");
+    }
+
     public static boolean isSafeSingleFileName(String rawFileName) {
         if (rawFileName == null || rawFileName.isBlank()) {
             return false;
