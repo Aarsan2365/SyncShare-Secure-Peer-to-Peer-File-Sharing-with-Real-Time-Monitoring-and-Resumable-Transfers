@@ -700,6 +700,26 @@ public class ReceiveFilesController implements NavigationAware {
         if (session.stage() == IncomingTransferSession.Stage.IDLE) {
             return;
         }
+
+        if (services != null) {
+            AppSettings settings = services.settingsService().getSettings();
+            if (settings != null) {
+                if (!settings.notificationsEnabled()) {
+                    return;
+                }
+                if ((session.stage() == IncomingTransferSession.Stage.COMPLETED
+                    || session.stage() == IncomingTransferSession.Stage.FAILED)
+                    && !settings.notifyOnTransferComplete()) {
+                    return;
+                }
+                if ((session.stage() == IncomingTransferSession.Stage.AWAITING_APPROVAL
+                    || session.stage() == IncomingTransferSession.Stage.CONNECTED)
+                    && !settings.notifyOnIncomingRequest()) {
+                    return;
+                }
+            }
+        }
+
         String key = session.transferId() + ":" + session.stage();
         if (key.equals(lastNotifiedStageKey)) {
             return;

@@ -14,4 +14,10 @@ public record LocalDeviceInfo(
     String receiveDirectory,
     boolean tlsConfigured
 ) {
+    /**
+     * Alias for {@link #operatingSystem()} for backward compatibility.
+     */
+    public String os() {
+        return operatingSystem;
+    }
 }

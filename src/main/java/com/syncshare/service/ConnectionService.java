@@ -947,14 +947,7 @@ public class ConnectionService implements IncomingTransferGateway {
         String normalizedPath = resolvedDir.toAbsolutePath().normalize().toString();
         AppSettings current = settingsService.getSettings();
         if (!normalizedPath.equals(current.receiveDirectory())) {
-            settingsService.updateSettings(new AppSettings(
-                current.deviceAlias(),
-                current.listeningPort(),
-                normalizedPath,
-                current.requireApproval(),
-                current.verifySha256(),
-                current.autoStartReceiver()
-            ));
+            settingsService.updateSettings(current.withReceiveDirectory(normalizedPath));
         } else {
             System.setProperty("syncshare.receiveDir", normalizedPath);
         }

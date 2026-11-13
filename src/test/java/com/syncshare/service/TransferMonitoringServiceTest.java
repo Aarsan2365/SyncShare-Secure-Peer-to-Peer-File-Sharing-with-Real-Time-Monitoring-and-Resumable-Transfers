@@ -123,6 +123,7 @@ class TransferMonitoringServiceTest {
             // Test AutoCloseable subscription & cancel handler cleanup
             AtomicInteger subEvents = new AtomicInteger(0);
             try (AutoCloseable sub = service.subscribe((a, r) -> subEvents.incrementAndGet())) {
+                assertNotNull(sub, "Subscription handle must not be null");
                 assertEquals(1, service.listenerCount());
                 service.registerQueued("tx-cancel", TransferDirection.INCOMING, "clip.mp4", 4096L, "10.0.0.5", "Queued");
                 JavaFxToolkitExtension.runOnFxThread(() -> {});

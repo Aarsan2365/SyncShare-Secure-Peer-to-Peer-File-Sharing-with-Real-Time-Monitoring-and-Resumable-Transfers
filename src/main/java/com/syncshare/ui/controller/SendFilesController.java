@@ -184,6 +184,18 @@ public class SendFilesController implements NavigationAware {
             } catch (Exception ignored) {
             }
         }
+        if (chooser.getInitialDirectory() == null && services != null) {
+            try {
+                String dlDir = services.settingsService().getSettings().downloadDirectory();
+                if (dlDir != null && !dlDir.isBlank()) {
+                    Path candidate = Path.of(dlDir.trim());
+                    if (Files.isDirectory(candidate)) {
+                        chooser.setInitialDirectory(candidate.toFile());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
         return chooser;
     }
 

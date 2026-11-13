@@ -711,7 +711,16 @@ class ReceiveFilesControllerTest {
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
             AtomicBoolean matched = new AtomicBoolean(false);
-            JavaFxToolkitExtension.runOnFxThread(() -> matched.set(conditionOnFx.getAsBoolean()));
+            try {
+                JavaFxToolkitExtension.runOnFxThread(() -> {
+                    try {
+                        matched.set(conditionOnFx.getAsBoolean());
+                    } catch (Throwable t) {
+                        matched.set(false);
+                    }
+                });
+            } catch (Throwable ignored) {
+            }
             if (matched.get()) {
                 return;
             }
