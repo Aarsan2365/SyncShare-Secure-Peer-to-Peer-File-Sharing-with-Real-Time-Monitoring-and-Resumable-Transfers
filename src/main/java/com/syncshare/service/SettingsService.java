@@ -290,6 +290,14 @@ public class SettingsService {
         });
     }
 
+    /**
+     * Restores SyncShare defaults and returns a ValidationResult.
+     */
+    public ValidationResult restoreDefaults() {
+        resetDefaults();
+        return ValidationResult.ok("Default settings restored.");
+    }
+
     public CompletableFuture<Void> resetDefaultsAsync() {
         runOnFxThread(() -> saving.set(true));
         return CompletableFuture.runAsync(this::resetDefaults, ioExecutor)
