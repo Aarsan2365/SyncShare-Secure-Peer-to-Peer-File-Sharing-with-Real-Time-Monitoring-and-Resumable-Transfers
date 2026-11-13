@@ -3,27 +3,15 @@ package com.syncshare.service;
 import com.syncshare.discovery.DeviceDiscoveryService;
 import com.syncshare.discovery.PeerInfo;
 import com.syncshare.events.ConsoleTransferListener;
-import com.syncshare.events.TransferEventListener;
-import com.syncshare.events.TransferListener;
 import com.syncshare.events.TransferSessionListener;
-import com.syncshare.model.ConnectionState;
 import com.syncshare.model.ConnectionStatus;
-import com.syncshare.model.LocalDeviceInfo;
 import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
-import com.syncshare.monitoring.MonitoredTransfer;
-import com.syncshare.monitoring.TransferMonitorState;
-import com.syncshare.network.PeerServer;
-import com.syncshare.network.Protocol;
-import com.syncshare.resume.ResumeStore;
-import com.syncshare.security.TlsSupport;
 import com.syncshare.transfer.FileReceiver;
 import com.syncshare.transfer.FileSender;
 import com.syncshare.ui.JavaFxToolkitExtension;
-import com.syncshare.ui.controller.SendFilesController;
 import javafx.application.Platform;
-import javafx.stage.Stage;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.MethodOrderer;
@@ -38,17 +26,14 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.TrustManagerFactory;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
@@ -59,7 +44,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -271,10 +255,12 @@ public class NetworkServicesIntegrationTest {
             }
 
             // Verify .resume file exists and offset is recorded
-            List<Path> resumeFiles = Files.walk(receiveDir)
-                .filter(p -> p.toString().endsWith(".resume"))
-                .toList();
-            assertFalse(resumeFiles.isEmpty(), "Resume checkpoint file must exist after interruption");
+            try (var stream = Files.walk(receiveDir)) {
+                List<Path> resumeFiles = stream
+                    .filter(p -> p.toString().endsWith(".resume"))
+                    .toList();
+                assertFalse(resumeFiles.isEmpty(), "Resume checkpoint file must exist after interruption");
+            }
 
             monitoring.shutdown();
         }
@@ -434,13 +420,11 @@ public class NetworkServicesIntegrationTest {
             }
         };
 
-        PeerDiscoveryManager discoveryManager = new PeerDiscoveryManager(
+        try (PeerDiscoveryManager discoveryManager = new PeerDiscoveryManager(
             settingsService,
             deviceInfoService,
             (name, port) -> mockService
-        );
-
-        try {
+        )) {
             assertFalse(discoveryManager.isActive());
 
             discoveryManager.start();
@@ -464,7 +448,6 @@ public class NetworkServicesIntegrationTest {
                 assertTrue(discoveryManager.getDiscoveredPeers().isEmpty());
             });
         } finally {
-            discoveryManager.shutdown();
             settingsService.shutdown();
         }
     }
@@ -551,7 +534,10 @@ public class NetworkServicesIntegrationTest {
             "-keypass", password
         ).redirectErrorStream(true).start();
 
-        String output = new String(process.getInputStream().readAllBytes());
+        String output;
+        try (InputStream in = process.getInputStream()) {
+            output = new String(in.readAllBytes());
+        }
         if (!process.waitFor(20, TimeUnit.SECONDS) || process.exitValue() != 0) {
             throw new IllegalStateException("keytool failed: " + output);
         }
