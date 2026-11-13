@@ -171,45 +171,49 @@ public record TransferRecord(
      * Converts raw destination strings into a safe display label without exposing
      * full local filesystem paths (such as user home directories).
      */
-    public static String sanitizeDestination(String rawDestination) {
-        if (rawDestination == null || rawDestination.isBlank()) {
-            return "";
-        }
-        String trimmed = stripControlChars(rawDestination).trim();
-        if (trimmed.isEmpty()) {
-            return "";
-        }
-        boolean looksLikeAbsolutePath = trimmed.startsWith("/")
-            || trimmed.startsWith("\\")
-            || WINDOWS_DRIVE_PREFIX.matcher(trimmed).matches()
-            || UNC_PREFIX.matcher(trimmed).matches();
-
-        if (looksLikeAbsolutePath) {
-            try {
-                Path path = Path.of(trimmed);
-                Path fileName = path.getFileName();
-                if (fileName != null && !fileName.toString().isBlank()) {
-                    trimmed = fileName.toString().trim();
-                } else {
-                    String normalized = trimmed.replace('\\', '/').replaceAll("/+$", "");
-                    int idx = normalized.lastIndexOf('/');
-                    trimmed = idx >= 0 && idx + 1 < normalized.length()
-                        ? normalized.substring(idx + 1)
-                        : "Receive folder";
-                }
-            } catch (Exception ignored) {
-                String normalized = trimmed.replace('\\', '/').replaceAll("/+$", "");
-                int idx = normalized.lastIndexOf('/');
-                trimmed = idx >= 0 && idx + 1 < normalized.length()
-                    ? normalized.substring(idx + 1)
-                    : "Receive folder";
-            }
-        }
-        if (trimmed.length() > MAX_FIELD_LENGTH) {
-            trimmed = trimmed.substring(0, MAX_FIELD_LENGTH);
-        }
-        return trimmed;
+    
+public static String sanitizeDestination(String rawDestination) {
+    if (rawDestination == null || rawDestination.isBlank()) {
+        return "";
     }
+
+    String trimmed = stripControlChars(rawDestination).trim();
+
+    if (trimmed.isEmpty()) {
+        return "";
+    }
+
+    boolean looksLikeAbsolutePath =
+        trimmed.startsWith("/")
+        || trimmed.startsWith("\\")
+        || WINDOWS_DRIVE_PREFIX.matcher(trimmed).matches()
+        || UNC_PREFIX.matcher(trimmed).matches();
+
+    if (looksLikeAbsolutePath) {
+        // Normalize Windows and Unix path separators.
+        String normalized = trimmed.replace('\\', '/');
+
+        // Remove trailing separators.
+        normalized = normalized.replaceAll("/+$", "");
+
+        // Extract the final directory or file name.
+        int lastSlash = normalized.lastIndexOf('/');
+
+        if (lastSlash >= 0
+                && lastSlash + 1 < normalized.length()) {
+            trimmed = normalized.substring(lastSlash + 1);
+        } else {
+            trimmed = "Receive folder";
+        }
+    }
+
+    if (trimmed.length() > MAX_FIELD_LENGTH) {
+        trimmed = trimmed.substring(0, MAX_FIELD_LENGTH);
+    }
+
+    return trimmed;
+}
+
 
     public static String sanitizeNote(String rawNote) {
         if (rawNote == null || rawNote.isBlank()) {

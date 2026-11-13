@@ -123,17 +123,24 @@ public final class TransferSpeedEstimator {
         return refreshAt(nanoClock.getAsLong());
     }
 
-    public synchronized double refreshAt(long nowNanos) {
-        if (!initialized) {
-            return TransferMetricsCalculator.UNAVAILABLE_SPEED;
-        }
-        if (nowNanos > lastProgressNanos && (nowNanos - lastProgressNanos) >= stallTimeoutNanos) {
-            smoothedBytesPerSecond = 0.0;
-            anchorBytes = lastObservedBytes;
-            anchorNanos = nowNanos;
-        }
-        return smoothedBytesPerSecond;
+    
+public synchronized double refreshAt(long nowNanos) {
+    if (!initialized) {
+        return TransferMetricsCalculator.UNAVAILABLE_SPEED;
     }
+
+    if (nowNanos > lastProgressNanos
+            && (nowNanos - lastProgressNanos) >= stallTimeoutNanos
+            && smoothedBytesPerSecond != 0.0) {
+
+        smoothedBytesPerSecond = 0.0;
+        anchorBytes = lastObservedBytes;
+        anchorNanos = nowNanos;
+    }
+
+    return smoothedBytesPerSecond;
+}
+
 
     public synchronized void markInactive() {
         this.initialized = false;

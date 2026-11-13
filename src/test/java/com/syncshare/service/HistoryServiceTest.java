@@ -22,7 +22,8 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import javafx.application.Platform;
+import java.util.concurrent.CountDownLatch;
 class HistoryServiceTest {
 
     @TempDir
@@ -215,6 +216,7 @@ class HistoryServiceTest {
             assertEquals(1, history.getSnapshot().size());
 
             HistoryService.OperationResult clearResult = history.clearHistorySync();
+            waitForFxUpdates();
             assertFalse(clearResult.success());
             assertTrue(history.getLastError().contains("Read-only storage failure"));
             assertEquals(1, history.getSnapshot().size(), "In-memory valid history must remain intact when clear fails");
@@ -223,6 +225,7 @@ class HistoryServiceTest {
             // Corrupt the file on disk and refresh -> valid in-memory history must still be preserved
             Files.writeString(historyFile, "{ invalid json", StandardCharsets.UTF_8);
             TransferHistoryRepository.LoadResult corruptedRefresh = history.refreshSync();
+            waitForFxUpdates();
             assertTrue(corruptedRefresh.corrupted());
             assertFalse(history.getLastError().isBlank());
             assertEquals(1, history.getSnapshot().size());
@@ -232,4 +235,23 @@ class HistoryServiceTest {
             history.shutdown();
         }
     }
+    
+private static void waitForFxUpdates()
+        throws InterruptedException {
+
+    CountDownLatch latch = new CountDownLatch(1);
+
+    try {
+        Platform.runLater(latch::countDown);
+    } catch (IllegalStateException toolkitNotStarted) {
+        // Without JavaFX startup, HistoryService
+        // performs property updates inline.
+        return;
+    }
+
+    assertTrue(
+        latch.await(5, TimeUnit.SECONDS),
+        "Timed out waiting for JavaFX updates"
+    );
+}
 }
