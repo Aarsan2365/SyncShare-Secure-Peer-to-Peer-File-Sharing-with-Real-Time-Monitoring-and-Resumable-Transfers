@@ -216,6 +216,9 @@ class HistoryServiceTest {
 
             HistoryService.OperationResult clearResult = history.clearHistorySync();
             assertFalse(clearResult.success());
+            for (int i = 0; i < 50 && (history.getLastError() == null || !history.getLastError().contains("Read-only storage failure")); i++) {
+                Thread.sleep(10);
+            }
             assertTrue(history.getLastError().contains("Read-only storage failure"));
             assertEquals(1, history.getSnapshot().size(), "In-memory valid history must remain intact when clear fails");
             assertEquals(1, monitoring.getActiveSnapshot().size(), "Active monitoring transfers must stay untouched");

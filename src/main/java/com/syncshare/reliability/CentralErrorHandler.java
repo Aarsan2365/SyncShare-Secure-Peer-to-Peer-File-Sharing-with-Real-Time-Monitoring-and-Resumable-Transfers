@@ -43,7 +43,7 @@ public class CentralErrorHandler {
     private static final CentralErrorHandler DEFAULT_INSTANCE = new CentralErrorHandler();
     private static final long DEFAULT_DEDUP_WINDOW_MILLIS = 1500L;
 
-    private final List<AppErrorListener> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<AppErrorListener> listeners = new CopyOnWriteArrayList<>();
     private final ConcurrentHashMap<String, Long> recentErrorTimestamps = new ConcurrentHashMap<>();
     private final AtomicReference<AppError> latestError = new AtomicReference<>();
     private final AtomicBoolean shutDown = new AtomicBoolean(false);
@@ -63,12 +63,13 @@ public class CentralErrorHandler {
 
     /**
      * Registers a listener to receive categorized error events.
+     * Prevents duplicate listener registrations.
      */
     public boolean addListener(AppErrorListener listener) {
         if (listener == null || shutDown.get()) {
             return false;
         }
-        return listeners.add(listener);
+        return listeners.addIfAbsent(listener);
     }
 
     /**
@@ -94,6 +95,7 @@ public class CentralErrorHandler {
     public void clearRecentErrors() {
         recentErrorTimestamps.clear();
         latestError.set(null);
+        shutDown.set(false);
     }
 
     /**
@@ -223,7 +225,7 @@ public class CentralErrorHandler {
         return error.category().name() + "|" + error.context() + "|" + causeSig;
     }
 
-    private static Throwable findRootCause(Throwable throwable) {
+    public static Throwable findRootCause(Throwable throwable) {
         Throwable current = throwable;
         int depth = 0;
         while (current.getCause() != null && current.getCause() != current && depth < 20) {

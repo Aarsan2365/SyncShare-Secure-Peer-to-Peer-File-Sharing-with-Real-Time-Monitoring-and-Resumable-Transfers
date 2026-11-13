@@ -28,6 +28,11 @@ public final class ReliabilityLogger {
         "(?i)(identity\\.p12|trusted-peers\\.p12)\\s*[:=]\\s*([^\\s;,]+)"
     );
 
+    private static final Pattern PEM_PRIVATE_KEY_PATTERN = Pattern.compile(
+        "-----BEGIN [A-Z0-9_ -]*PRIVATE KEY-----[\\s\\S]*?-----END [A-Z0-9_ -]*PRIVATE KEY-----",
+        Pattern.CASE_INSENSITIVE
+    );
+
     private static final long DEDUP_WINDOW_MILLIS = 2000L;
     private static final ConcurrentHashMap<String, Long> RECENT_LOGS = new ConcurrentHashMap<>();
 
@@ -116,7 +121,15 @@ public final class ReliabilityLogger {
         String redacted = SENSITIVE_PATTERNS.matcher(input).replaceAll("$1=[REDACTED]");
         redacted = TLS_ENV_PATTERN.matcher(redacted).replaceAll("SYNCSHARE_TLS_PASSWORD=[REDACTED]");
         redacted = P12_PASSWORD_PATTERN.matcher(redacted).replaceAll("$1=[REDACTED]");
+        redacted = PEM_PRIVATE_KEY_PATTERN.matcher(redacted).replaceAll("[REDACTED_PRIVATE_KEY]");
         return redacted;
+    }
+
+    /**
+     * Alias for sanitize for explicit redaction verification.
+     */
+    public static String redactSensitiveData(String message) {
+        return sanitize(message);
     }
 
     /**

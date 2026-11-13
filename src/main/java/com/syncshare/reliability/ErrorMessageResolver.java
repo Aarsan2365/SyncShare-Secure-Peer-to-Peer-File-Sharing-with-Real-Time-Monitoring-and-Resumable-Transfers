@@ -26,6 +26,10 @@ public final class ErrorMessageResolver {
     private ErrorMessageResolver() {
     }
 
+    public static String resolveUserMessage(AppErrorCategory category, Throwable error, String context) {
+        return resolveUserMessage(category, error, CentralErrorHandler.findRootCause(error), context);
+    }
+
     public static String resolveUserMessage(AppErrorCategory category, Throwable error, Throwable root, String context) {
         String safeContext = (context != null && !context.isBlank()) ? " (" + ReliabilityLogger.sanitize(context) + ")" : "";
         String rootMsg = (root != null && root.getMessage() != null && !root.getMessage().isBlank())
