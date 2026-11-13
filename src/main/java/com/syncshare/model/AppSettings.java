@@ -97,13 +97,7 @@ public record AppSettings(
     }
 
     public static AppSettings defaults() {
-        String hostFallback = System.getenv("COMPUTERNAME");
-        if (hostFallback == null || hostFallback.isBlank()) {
-            hostFallback = System.getenv("HOSTNAME");
-        }
-        if (hostFallback == null || hostFallback.isBlank()) {
-            hostFallback = DEFAULT_ALIAS;
-        }
+        String hostFallback = resolveDefaultAlias();
         String configuredReceiveDir = System.getProperty("syncshare.receiveDir", DEFAULT_RECEIVE_DIR);
         String configuredDownloadDir = System.getProperty(
             "syncshare.downloadDir",
@@ -125,6 +119,35 @@ public record AppSettings(
             true,   // soundEnabled
             DEFAULT_THEME
         );
+    }
+
+    public static AppSettings cleanDefaults() {
+        return new AppSettings(
+            resolveDefaultAlias(),
+            DEFAULT_PORT,
+            DEFAULT_RECEIVE_DIR,
+            resolveUserDownloadsDir(DEFAULT_RECEIVE_DIR),
+            true,   // requireApproval
+            true,   // verifySha256
+            false,  // autoStartReceiver
+            false,  // startMinimized
+            true,   // notificationsEnabled
+            true,   // notifyOnTransferComplete
+            true,   // notifyOnIncomingRequest
+            true,   // soundEnabled
+            DEFAULT_THEME
+        );
+    }
+
+    private static String resolveDefaultAlias() {
+        String hostFallback = System.getenv("COMPUTERNAME");
+        if (hostFallback == null || hostFallback.isBlank()) {
+            hostFallback = System.getenv("HOSTNAME");
+        }
+        if (hostFallback == null || hostFallback.isBlank()) {
+            hostFallback = DEFAULT_ALIAS;
+        }
+        return hostFallback;
     }
 
     public static String resolveDefaultDownloadDir(String fallbackReceiveDir) {
