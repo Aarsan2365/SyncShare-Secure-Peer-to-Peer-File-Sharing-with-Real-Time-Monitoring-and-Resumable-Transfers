@@ -38,12 +38,16 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -204,12 +208,23 @@ public class TransferService implements OutgoingTransferGateway {
     }
 
     private static ExecutorService createWorkerExecutor() {
-        return Executors.newFixedThreadPool(3, runnable -> {
-            Thread thread = new Thread(runnable, "syncshare-transfer-worker");
+    return new ThreadPoolExecutor(
+        3, // Maximum 3 simultaneous outgoing transfers
+        3,
+        0L,
+        TimeUnit.MILLISECONDS,
+        new ArrayBlockingQueue<>(8), // Maximum 8 waiting transfers
+        runnable -> {
+            Thread thread = new Thread(
+                runnable,
+                "syncshare-transfer-worker"
+            );
             thread.setDaemon(true);
             return thread;
-        });
-    }
+        },
+        new ThreadPoolExecutor.AbortPolicy()
+    );
+}
 
     private void bindMetricListeners() {
         activeTransfers.addListener((ListChangeListener<TransferItem>) change -> recalculateMetrics());
