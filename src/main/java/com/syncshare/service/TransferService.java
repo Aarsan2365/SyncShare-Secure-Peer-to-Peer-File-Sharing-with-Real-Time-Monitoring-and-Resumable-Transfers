@@ -38,18 +38,20 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.regex.Pattern;
-
 /**
  * Coordinates outgoing and incoming transfer orchestration, real-time monitoring
  * integration, progress tracking, and transfer history state without exposing
@@ -166,6 +168,7 @@ public class TransferService implements OutgoingTransferGateway {
     private final ConcurrentHashMap<String, ActiveTransferContext> runningTasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Socket> activeSockets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, TransferItem> activeSnapshots = new ConcurrentHashMap<>();
+    private final AtomicBoolean shutdownInitiated = new AtomicBoolean(false);
 
     private final ObservableList<TransferItem> activeTransfers = FXCollections.observableArrayList();
     private final ObservableList<TransferItem> unmodifiableActiveTransfers =
@@ -204,11 +207,19 @@ public class TransferService implements OutgoingTransferGateway {
     }
 
     private static ExecutorService createWorkerExecutor() {
-        return Executors.newFixedThreadPool(3, runnable -> {
-            Thread thread = new Thread(runnable, "syncshare-transfer-worker");
-            thread.setDaemon(true);
-            return thread;
-        });
+        return new ThreadPoolExecutor(
+            3, // Maximum 3 simultaneous outgoing transfers
+            3,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(8), // Maximum 8 waiting transfers
+            runnable -> {
+                Thread thread = new Thread(runnable, "syncshare-transfer-worker");
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     private void bindMetricListeners() {
@@ -462,6 +473,11 @@ public class TransferService implements OutgoingTransferGateway {
             if (ctx.cancelled.get()) {
                 task.cancel(true);
             }
+        } catch (RejectedExecutionException submitError) {
+            runningTasks.remove(transferId, ctx);
+            monitoringService.onFailed(ctx.transferId, TransferDirection.OUTGOING, ctx.fileName, submitError.getMessage(), submitError);
+            TransferItem failed = recordFailure(ctx, ctx.fileName, submitError, NO_OP_OBSERVER);
+            completion.complete(failed);
         } catch (RuntimeException submitError) {
             runningTasks.remove(transferId, ctx);
             monitoringService.onFailed(ctx.transferId, TransferDirection.OUTGOING, ctx.fileName, submitError.getMessage(), submitError);
@@ -1095,7 +1111,10 @@ public class TransferService implements OutgoingTransferGateway {
 
         String endpoint = (peerHost != null && !peerHost.isBlank() ? peerHost : "peer")
             + (port > 0 ? ":" + port : "");
-
+        if (cause instanceof RejectedExecutionException) {
+            return "Unable to start transfer: the outgoing transfer queue is full "
+                + "or the transfer service is shutting down. Please wait and try again.";
+        }
         if (cause instanceof NoSuchFileException || cause instanceof FileNotFoundException) {
             return "File does not exist: " + rawMsg;
         }
@@ -1212,19 +1231,50 @@ public class TransferService implements OutgoingTransferGateway {
     }
 
     public void shutdown() {
-        for (String id : runningTasks.keySet()) {
-            cancelActiveTransfer(id);
+        if (!shutdownInitiated.compareAndSet(false, true)) {
+            return;
+        }
+        // Make cancellation visible to workers before interrupting them.  Some
+        // blocking APIs clear the interrupted flag when they throw, so the
+        // context flag is the authoritative shutdown signal.
+        var contextsToCancel = runningTasks.values().toArray(ActiveTransferContext[]::new);
+        for (ActiveTransferContext context : contextsToCancel) {
+            context.cancelled.set(true);
+        }
+        // Stop the executor before cancelling individual contexts.  Otherwise an
+        // interrupted running task can free a worker and let a queued transfer
+        // start in the middle of shutdown.
+        executor.shutdownNow();
+        for (ActiveTransferContext context : contextsToCancel) {
+            cancelContext(context);
+        }
+        // Include a submission that raced with the snapshot above.
+        for (ActiveTransferContext context : runningTasks.values()) {
+            cancelContext(context);
         }
         activeSockets.values().forEach(TransferService::closeQuietly);
         activeSockets.clear();
         runningTasks.clear();
-        executor.shutdownNow();
         try {
             executor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS);
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
         monitoringService.shutdown();
+    }
+
+    private void cancelContext(ActiveTransferContext context) {
+        context.cancelled.set(true);
+        Socket socket = activeSockets.remove(context.transferId);
+        if (socket != null) {
+            closeQuietly(socket);
+        }
+        TransferItem cancelled = finishCancelled(context, NO_OP_OBSERVER);
+        context.interruptExecution();
+        if (context.completion != null) {
+            context.completion.complete(cancelled);
+        }
+        runningTasks.remove(context.transferId, context);
     }
 
     private static void closeQuietly(Socket socket) {
