@@ -16,7 +16,6 @@ import com.syncshare.ui.design.UiIcons;
 import com.syncshare.ui.design.ValidatedTextField;
 import com.syncshare.ui.navigation.NavigationAware;
 import com.syncshare.ui.navigation.ViewNavigator;
-import javafx.application.Platform;
 import javafx.fxml.FXML;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -26,7 +25,6 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -187,7 +185,7 @@ public class SettingsController implements NavigationAware {
             UiButtons.Size.MD
         );
         browseReceiveBtn.setId("browseReceiveDirButton");
-        browseReceiveBtn.setOnAction(e -> browseDirectory(receiveDirField, "Select Default Save Location"));
+        browseReceiveBtn.setOnAction(e -> browseReceiveDirectory());
 
         HBox receiveRow = new HBox(DesignSystem.SPACE_XS, receiveDirField, browseReceiveBtn);
         receiveRow.setAlignment(Pos.BOTTOM_LEFT);
@@ -209,7 +207,7 @@ public class SettingsController implements NavigationAware {
             UiButtons.Size.MD
         );
         browseDownloadBtn.setId("browseDownloadDirButton");
-        browseDownloadBtn.setOnAction(e -> browseDirectory(downloadDirField, "Select Default Download Directory"));
+        browseDownloadBtn.setOnAction(e -> browseDownloadDirectory());
 
         HBox downloadRow = new HBox(DesignSystem.SPACE_XS, downloadDirField, browseDownloadBtn);
         downloadRow.setAlignment(Pos.BOTTOM_LEFT);
@@ -450,7 +448,11 @@ public class SettingsController implements NavigationAware {
     }
 
     private void browseReceiveDirectory() {
-        browseDirectory(receiveDirField, "Select SyncShare Receive Directory");
+        browseDirectory(receiveDirField, "Select Default Save Location");
+    }
+
+    private void browseDownloadDirectory() {
+        browseDirectory(downloadDirField, "Select Default Download Directory");
     }
 
     private void handleSave() {

@@ -1,7 +1,6 @@
 package com.syncshare.ui;
 
 import com.syncshare.model.AppSettings;
-import com.syncshare.model.LocalDeviceInfo;
 import com.syncshare.service.ConnectionService;
 import com.syncshare.service.DeviceInfoService;
 import com.syncshare.service.HistoryService;

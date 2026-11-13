@@ -1,6 +1,5 @@
 package com.syncshare.model;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.util.Objects;
 

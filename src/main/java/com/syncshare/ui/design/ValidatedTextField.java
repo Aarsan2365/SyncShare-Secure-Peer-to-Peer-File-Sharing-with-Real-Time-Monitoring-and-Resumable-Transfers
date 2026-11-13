@@ -79,6 +79,14 @@ public class ValidatedTextField extends VBox {
         setValidation(SemanticTone.NEUTRAL, defaultHint);
     }
 
+    public void setError(String message) {
+        setValidation(SemanticTone.ERROR, message);
+    }
+
+    public void setSuccess(String message) {
+        setValidation(SemanticTone.SUCCESS, message);
+    }
+
     private void updateFeedback(SemanticTone tone, String message) {
         String resolved = message != null ? message : "";
         DesignSystem.swapExclusiveClass(
