@@ -1229,4 +1229,9 @@ public class SendFilesController implements NavigationAware {
             GridPane.setColumnSpan(child, 1);
         }
     }
+
+    @Override
+    public void dispose() {
+        sendTransferService.shutdown();
+    }
 }

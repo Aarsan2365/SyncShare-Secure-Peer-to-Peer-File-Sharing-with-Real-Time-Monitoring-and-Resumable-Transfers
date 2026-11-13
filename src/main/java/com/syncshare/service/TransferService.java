@@ -1219,6 +1219,11 @@ public class TransferService implements OutgoingTransferGateway {
         activeSockets.clear();
         runningTasks.clear();
         executor.shutdownNow();
+        try {
+            executor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
         monitoringService.shutdown();
     }
 

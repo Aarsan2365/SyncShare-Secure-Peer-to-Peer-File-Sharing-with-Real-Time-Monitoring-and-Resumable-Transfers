@@ -38,6 +38,7 @@ public class SendFileTransferService extends Service<TransferItem> {
     private final ReadOnlyLongWrapper totalBytes =
         new ReadOnlyLongWrapper(this, "totalBytes", 0L);
 
+    private final java.util.concurrent.ExecutorService executorService;
     private OutgoingTransferGateway gateway;
     private String peerHost;
     private int port;
@@ -45,11 +46,13 @@ public class SendFileTransferService extends Service<TransferItem> {
     private volatile String currentTransferId;
 
     public SendFileTransferService() {
-        setExecutor(Executors.newCachedThreadPool(runnable -> {
+        java.util.concurrent.ExecutorService pool = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "syncshare-send-fx-" + THREAD_SEQ.getAndIncrement());
             thread.setDaemon(true);
             return thread;
-        }));
+        });
+        this.executorService = pool;
+        setExecutor(pool);
     }
 
     public void configure(OutgoingTransferGateway gateway, String peerHost, int port, Path file) {
@@ -105,6 +108,17 @@ public class SendFileTransferService extends Service<TransferItem> {
 
     public boolean cancelCurrentTransfer() {
         return cancel();
+    }
+
+    public void shutdown() {
+        cancel();
+        if (executorService != null && !executorService.isShutdown()) {
+            executorService.shutdownNow();
+        }
+    }
+
+    public void dispose() {
+        shutdown();
     }
 
     @Override

@@ -924,6 +924,11 @@ public class ConnectionService implements IncomingTransferGateway {
 
     public void shutdown() {
         stopReceiver();
+        for (CompletableFuture<Boolean> decision : pendingDecisions.values()) {
+            decision.complete(false);
+        }
+        pendingDecisions.clear();
+        statusListeners.clear();
         activeSessions.clear();
     }
 
