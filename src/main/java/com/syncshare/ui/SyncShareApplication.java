@@ -1,5 +1,6 @@
 package com.syncshare.ui;
 
+import com.syncshare.model.AppSettings;
 import com.syncshare.service.SyncShareServices;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.UiDialogs;
@@ -70,6 +71,12 @@ public class SyncShareApplication extends Application {
         primaryStage.setScene(loadedView.scene());
         primaryStage.setOnCloseRequest(event -> initiateShutdown());
         primaryStage.centerOnScreen();
+
+        AppSettings settings = loadedView.controller().getServices().settingsService().getSettings();
+        if (settings != null && settings.startMinimized()) {
+            primaryStage.setIconified(true);
+        }
+
         primaryStage.show();
     }
 

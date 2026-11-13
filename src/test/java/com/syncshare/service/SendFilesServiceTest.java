@@ -1,7 +1,6 @@
 package com.syncshare.service;
 
 import com.syncshare.events.ConsoleTransferListener;
-import com.syncshare.events.TransferListener;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
 import com.syncshare.monitoring.MonitoredTransfer;

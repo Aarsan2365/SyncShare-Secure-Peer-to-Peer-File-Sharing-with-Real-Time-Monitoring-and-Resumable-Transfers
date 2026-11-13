@@ -111,5 +111,6 @@ public final class SyncShareServices {
         transferService.shutdown();
         transferMonitoringService.shutdown();
         historyService.shutdown();
+        settingsService.shutdown();
     }
 }

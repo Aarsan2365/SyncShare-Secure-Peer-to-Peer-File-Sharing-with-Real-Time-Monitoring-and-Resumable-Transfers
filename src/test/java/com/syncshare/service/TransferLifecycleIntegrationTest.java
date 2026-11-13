@@ -247,7 +247,8 @@ class TransferLifecycleIntegrationTest {
                         return null;
                     });
 
-                    try (SSLSocket senderSock = (SSLSocket) sharedSslContext.getSocketFactory().createSocket("127.0.0.1", server.getLocalPort())) {
+                    SSLSocket senderSock = (SSLSocket) sharedSslContext.getSocketFactory().createSocket("127.0.0.1", server.getLocalPort());
+                    try {
                         senderSock.setEnabledProtocols(new String[] {"TLSv1.3"});
                         senderSock.setSoTimeout(10_000);
                         com.syncshare.events.TransferSessionListener dropTrigger = new com.syncshare.events.TransferSessionListener() {
@@ -289,6 +290,11 @@ class TransferLifecycleIntegrationTest {
                         };
                         try {
                             FileSender.send(senderSock, largeSource, "tx-drop", dropTrigger);
+                        } catch (IOException ignored) {
+                        }
+                    } finally {
+                        try {
+                            senderSock.close();
                         } catch (IOException ignored) {
                         }
                     }
