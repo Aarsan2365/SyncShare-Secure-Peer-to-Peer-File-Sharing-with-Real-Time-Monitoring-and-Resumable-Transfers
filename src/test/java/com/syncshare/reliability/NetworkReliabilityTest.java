@@ -59,7 +59,7 @@ class NetworkReliabilityTest {
                 throw new ConnectException("Connection refused: connect");
             }, monitor);
 
-            Exception error = assertThrows(ConnectException.class, () -> service.sendFileBlocking(
+            assertThrows(ConnectException.class, () -> service.sendFileBlocking(
                 "tx-conn-refused",
                 "127.0.0.1",
                 59999,

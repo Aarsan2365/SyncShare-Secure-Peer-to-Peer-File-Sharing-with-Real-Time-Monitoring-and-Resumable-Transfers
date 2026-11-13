@@ -120,7 +120,6 @@ class ShutdownAndCleanupReliabilityTest {
     void syncShareServicesShutdownCoordinatesAllServicesInOrder() throws Throwable {
         JavaFxToolkitExtension.runOnFxThread(() -> {
             Path settingsFile = tempDir.resolve("settings.json");
-            Path historyFile = tempDir.resolve("history.json");
 
             SettingsService settings = new SettingsService(new JsonSettingsRepository(settingsFile), true);
             DeviceInfoService deviceInfo = new DeviceInfoService(settings);
