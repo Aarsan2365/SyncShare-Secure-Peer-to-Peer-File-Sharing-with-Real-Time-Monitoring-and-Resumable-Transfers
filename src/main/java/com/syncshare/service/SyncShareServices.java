@@ -1,5 +1,6 @@
 package com.syncshare.service;
 
+import com.syncshare.reliability.CentralErrorHandler;
 import java.util.Objects;
 
 /**
@@ -15,6 +16,7 @@ public final class SyncShareServices {
     private final TransferMonitoringService transferMonitoringService;
     private final HistoryService historyService;
     private final PeerDiscoveryManager discoveryManager;
+    private final CentralErrorHandler centralErrorHandler;
 
     public SyncShareServices(
         SettingsService settingsService,
@@ -76,6 +78,28 @@ public final class SyncShareServices {
         HistoryService historyService,
         PeerDiscoveryManager discoveryManager
     ) {
+        this(
+            settingsService,
+            deviceInfoService,
+            connectionService,
+            transferService,
+            transferMonitoringService,
+            historyService,
+            discoveryManager,
+            CentralErrorHandler.getInstance()
+        );
+    }
+
+    public SyncShareServices(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        ConnectionService connectionService,
+        TransferService transferService,
+        TransferMonitoringService transferMonitoringService,
+        HistoryService historyService,
+        PeerDiscoveryManager discoveryManager,
+        CentralErrorHandler centralErrorHandler
+    ) {
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService");
@@ -83,6 +107,7 @@ public final class SyncShareServices {
         this.transferMonitoringService = Objects.requireNonNull(transferMonitoringService, "transferMonitoringService");
         this.historyService = Objects.requireNonNull(historyService, "historyService");
         this.discoveryManager = Objects.requireNonNull(discoveryManager, "discoveryManager");
+        this.centralErrorHandler = Objects.requireNonNull(centralErrorHandler, "centralErrorHandler");
     }
 
     private static HistoryService createDefaultHistoryService(
@@ -134,6 +159,10 @@ public final class SyncShareServices {
         return discoveryManager;
     }
 
+    public CentralErrorHandler centralErrorHandler() {
+        return centralErrorHandler;
+    }
+
     public void shutdown() {
         discoveryManager.shutdown();
         connectionService.shutdown();
@@ -141,5 +170,6 @@ public final class SyncShareServices {
         transferMonitoringService.shutdown();
         historyService.shutdown();
         settingsService.shutdown();
+        centralErrorHandler.shutdown();
     }
 }
