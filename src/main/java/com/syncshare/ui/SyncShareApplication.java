@@ -1,6 +1,9 @@
 package com.syncshare.ui;
 
 import com.syncshare.model.AppSettings;
+import com.syncshare.reliability.AppError;
+import com.syncshare.reliability.CentralErrorHandler;
+import com.syncshare.reliability.ReliabilityLogger;
 import com.syncshare.service.SyncShareServices;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.UiDialogs;
@@ -44,10 +47,7 @@ public class SyncShareApplication extends Application {
     @Override
     public void start(Stage primaryStage) {
         Thread.currentThread().setUncaughtExceptionHandler((thread, error) -> {
-            System.err.println(
-                "Uncaught JavaFX error on thread " + thread.getName() + ": " + error.getMessage()
-            );
-            error.printStackTrace(System.err);
+            CentralErrorHandler.getInstance().handleError(error, "Uncaught JavaFX error on thread " + thread.getName());
         });
 
         try {
@@ -137,19 +137,18 @@ public class SyncShareApplication extends Application {
             try {
                 mainController.shutdown();
             } catch (RuntimeException error) {
-                System.err.println("Error during UI shutdown: " + error.getMessage());
-                error.printStackTrace(System.err);
+                CentralErrorHandler.getInstance().handleError(error, "UI shutdown");
             }
         }
     }
 
     private void handleStartupFailure(Throwable error) {
-        String message = error.getMessage() != null && !error.getMessage().isBlank()
-            ? error.getMessage()
-            : error.getClass().getSimpleName();
-
-        System.err.println("Failed to start " + APP_TITLE + ": " + message);
-        error.printStackTrace(System.err);
+        AppError appError = CentralErrorHandler.getInstance().handleError(error, "Application Startup");
+        String message = appError != null
+            ? appError.userMessage()
+            : (error.getMessage() != null && !error.getMessage().isBlank()
+                ? error.getMessage()
+                : error.getClass().getSimpleName());
 
         if (!Boolean.getBoolean("syncshare.ui.suppressDialogs")) {
             try {
@@ -161,8 +160,9 @@ public class SyncShareApplication extends Application {
                 );
                 alert.showAndWait();
             } catch (Throwable dialogError) {
-                System.err.println(
-                    "Unable to display startup error dialog: " + dialogError.getMessage()
+                ReliabilityLogger.getLogger(SyncShareApplication.class).error(
+                    "Unable to display startup error dialog",
+                    dialogError
                 );
             }
         }
@@ -174,11 +174,13 @@ public class SyncShareApplication extends Application {
         try {
             launch(args);
         } catch (Throwable error) {
-            String message = error.getMessage() != null && !error.getMessage().isBlank()
-                ? error.getMessage()
-                : error.getClass().getSimpleName();
-            System.err.println(APP_TITLE + " failed during JavaFX launch: " + message);
-            error.printStackTrace(System.err);
+            AppError appError = CentralErrorHandler.getInstance().handleError(error, "JavaFX Launch");
+            String message = appError != null
+                ? appError.userMessage()
+                : (error.getMessage() != null && !error.getMessage().isBlank()
+                    ? error.getMessage()
+                    : error.getClass().getSimpleName());
+            ReliabilityLogger.getLogger(SyncShareApplication.class).error(APP_TITLE + " failed during JavaFX launch: " + message, error);
             System.exit(1);
         }
     }

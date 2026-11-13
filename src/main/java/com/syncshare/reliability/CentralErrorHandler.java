@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class CentralErrorHandler {
 
+    private static final ReliabilityLogger LOGGER = ReliabilityLogger.getLogger(CentralErrorHandler.class);
     private static final CentralErrorHandler DEFAULT_INSTANCE = new CentralErrorHandler();
     private static final long DEFAULT_DEDUP_WINDOW_MILLIS = 1500L;
 
@@ -123,7 +124,7 @@ public class CentralErrorHandler {
         Throwable root = findRootCause(error);
         AppErrorCategory category = determineCategory(error, root);
         String userHeadline = category.displayName();
-        String userMessage = buildUserMessage(category, error, root, safeContext);
+        String userMessage = ErrorMessageResolver.resolveUserMessage(category, error, root, safeContext);
 
         return AppError.of(category, userHeadline, userMessage, error, safeContext);
     }
@@ -166,6 +167,12 @@ public class CentralErrorHandler {
         }
 
         latestError.set(error);
+
+        if (error.recoverable()) {
+            LOGGER.warn(error.userHeadline() + ": " + error.userMessage(), error.cause());
+        } else {
+            LOGGER.error(error.userHeadline() + ": " + error.userMessage(), error.cause());
+        }
 
         // Safe notification to listeners, ensuring JavaFX UI handlers run on FX Thread
         for (AppErrorListener listener : listeners) {
@@ -308,52 +315,6 @@ public class CentralErrorHandler {
         return msg != null && (msg.contains("Required UI resource not found")
             || msg.contains("Unable to initialize the application window")
             || msg.contains("JavaFX launch"));
-    }
-
-    private static String buildUserMessage(AppErrorCategory category, Throwable error, Throwable root, String context) {
-        String ctxSuffix = (context != null && !context.isBlank()) ? " [" + context + "]" : "";
-        String rawMsg = (root != null && root.getMessage() != null && !root.getMessage().isBlank())
-            ? root.getMessage()
-            : (error.getMessage() != null ? error.getMessage() : "");
-
-        return switch (category) {
-            case CONNECTION_FAILED -> {
-                if (root instanceof SSLHandshakeException || root instanceof SSLException || root instanceof CertificateException) {
-                    yield "Connection failed: Mutual TLS 1.3 handshake or certificate verification failed" + ctxSuffix + ". " + rawMsg;
-                }
-                if (root instanceof UnknownHostException) {
-                    yield "Connection failed: Destination host could not be resolved" + ctxSuffix + ".";
-                }
-                yield "Connection failed: Unable to connect to peer" + ctxSuffix + ". Ensure the remote peer receiver is running.";
-            }
-            case FILE_NOT_FOUND ->
-                "File not found: The specified file could not be located" + ctxSuffix + ". It may have been moved, renamed, or deleted.";
-            case DESTINATION_UNAVAILABLE ->
-                "Destination unavailable: Selected receive directory is invalid or inaccessible" + ctxSuffix + ".";
-            case INSUFFICIENT_STORAGE ->
-                "Insufficient storage: Destination storage drive does not have enough free space" + ctxSuffix + ".";
-            case PERMISSION_DENIED ->
-                "Permission denied: Insufficient filesystem permissions to read or write" + ctxSuffix + ".";
-            case TRANSFER_INTERRUPTED -> {
-                if (root instanceof SocketTimeoutException) {
-                    yield "Transfer interrupted: Peer communication timed out" + ctxSuffix + ".";
-                }
-                if (root instanceof EOFException) {
-                    yield "Transfer interrupted: Remote peer closed the connection unexpectedly" + ctxSuffix + ".";
-                }
-                yield "Transfer interrupted: Connection was terminated unexpectedly" + ctxSuffix + ".";
-            }
-            case INVALID_CONFIGURATION -> {
-                if (root instanceof BindException) {
-                    yield "Invalid configuration: Port is already in use by another service" + ctxSuffix + ".";
-                }
-                yield "Invalid configuration: " + (!rawMsg.isBlank() ? rawMsg : "Parameters are invalid" + ctxSuffix);
-            }
-            case STARTUP_FAILED ->
-                "Application startup failed: " + (!rawMsg.isBlank() ? rawMsg : "Unable to initialize components.");
-            case UNEXPECTED_ERROR ->
-                "An unexpected error occurred: " + (!rawMsg.isBlank() ? rawMsg : error.getClass().getSimpleName());
-        };
     }
 
     private static void runOnFxThreadSafely(Runnable action) {

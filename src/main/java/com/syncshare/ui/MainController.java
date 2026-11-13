@@ -3,6 +3,8 @@ package com.syncshare.ui;
 import com.syncshare.model.ConnectionStatus;
 import com.syncshare.model.IncomingRequestItem;
 import com.syncshare.model.NavItemId;
+import com.syncshare.reliability.AppError;
+import com.syncshare.reliability.AppErrorListener;
 import com.syncshare.service.SyncShareServices;
 import com.syncshare.ui.design.ConnectionStatusPill;
 import com.syncshare.ui.design.DesignSystem;
@@ -76,6 +78,7 @@ public class MainController {
     private Label runtimeInfoLabel;
 
     private final SyncShareServices services;
+    private final AppErrorListener appErrorListener = this::handleApplicationError;
     private ViewNavigator viewNavigator;
     private volatile boolean initialized;
 
@@ -104,6 +107,7 @@ public class MainController {
         configureBrandAndHeader();
         configureNavigation();
         bindGlobalIndicators();
+        services.centralErrorHandler().addListener(appErrorListener);
 
         navigateTo(NavItemId.DASHBOARD);
     }
@@ -283,7 +287,15 @@ public class MainController {
         }
     }
 
+    private void handleApplicationError(AppError error) {
+        if (error == null) {
+            return;
+        }
+        setStatus(error.userHeadline() + ": " + error.userMessage(), error.category().tone());
+    }
+
     public void shutdown() {
+        services.centralErrorHandler().removeListener(appErrorListener);
         setStatus("Status: Shutting down...", SemanticTone.WARNING);
         if (viewNavigator != null) {
             viewNavigator.dispose();
