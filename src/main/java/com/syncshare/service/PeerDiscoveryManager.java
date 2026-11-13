@@ -4,6 +4,8 @@ import com.syncshare.discovery.DeviceDiscoveryService;
 import com.syncshare.discovery.DiscoveryService;
 import com.syncshare.discovery.PeerInfo;
 import com.syncshare.model.AppSettings;
+import com.syncshare.reliability.CentralErrorHandler;
+import com.syncshare.reliability.ReliabilityLogger;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
@@ -16,8 +18,6 @@ import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Coordinates background UDP device discovery, maintaining a live thread-safe
@@ -25,7 +25,7 @@ import java.util.logging.Logger;
  */
 public class PeerDiscoveryManager implements AutoCloseable {
 
-    private static final Logger LOGGER = Logger.getLogger(PeerDiscoveryManager.class.getName());
+    private static final ReliabilityLogger LOGGER = ReliabilityLogger.getLogger(PeerDiscoveryManager.class);
     private static final long POLL_INTERVAL_SECONDS = 2L;
 
     @FunctionalInterface
@@ -113,7 +113,8 @@ public class PeerDiscoveryManager implements AutoCloseable {
             });
             poller.scheduleWithFixedDelay(this::pollPeers, 1, POLL_INTERVAL_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "UDP Discovery could not be started on port 5051: " + e.getMessage(), e);
+            LOGGER.warn("UDP Discovery could not be started on port 5051: " + e.getMessage(), e);
+            CentralErrorHandler.getInstance().handleError(e, "discovery:5051");
             runOnFxThread(() -> active.set(false));
         }
     }
@@ -131,7 +132,7 @@ public class PeerDiscoveryManager implements AutoCloseable {
                 }
             });
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Error polling discovered peers: " + e.getMessage(), e);
+            LOGGER.debug("Error polling discovered peers: " + e.getMessage());
         }
     }
 

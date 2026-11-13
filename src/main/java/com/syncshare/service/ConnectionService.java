@@ -13,6 +13,7 @@ import com.syncshare.model.TransferDirection;
 import com.syncshare.model.TransferItem;
 import com.syncshare.model.TransferStatus;
 import com.syncshare.network.PeerServer;
+import com.syncshare.reliability.CentralErrorHandler;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
@@ -382,6 +383,7 @@ public class ConnectionService implements IncomingTransferGateway {
                 activeServer = null;
                 boundPort = -1;
                 updateStatus(ConnectionStatus.error(port, describeStartupError(port, error)));
+                CentralErrorHandler.getInstance().handleError(error, "port " + port);
                 return false;
             }
         }
@@ -456,6 +458,7 @@ public class ConnectionService implements IncomingTransferGateway {
             activeServer = null;
             boundPort = -1;
             updateStatus(ConnectionStatus.error(port, describeStartupError(port, error)));
+            CentralErrorHandler.getInstance().handleError(error, "port " + port);
             return false;
         }
     }
@@ -921,6 +924,11 @@ public class ConnectionService implements IncomingTransferGateway {
 
     public void shutdown() {
         stopReceiver();
+        for (CompletableFuture<Boolean> decision : pendingDecisions.values()) {
+            decision.complete(false);
+        }
+        pendingDecisions.clear();
+        statusListeners.clear();
         activeSessions.clear();
     }
 

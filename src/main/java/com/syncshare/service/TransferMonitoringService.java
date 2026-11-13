@@ -9,6 +9,9 @@ import com.syncshare.monitoring.TransferMetricsCalculator;
 import com.syncshare.monitoring.TransferMonitorListener;
 import com.syncshare.monitoring.TransferMonitorState;
 import com.syncshare.monitoring.TransferSpeedEstimator;
+import com.syncshare.reliability.AppErrorCategory;
+import com.syncshare.reliability.AppException;
+import com.syncshare.reliability.CentralErrorHandler;
 import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyIntegerProperty;
 import javafx.beans.property.ReadOnlyIntegerWrapper;
@@ -610,6 +613,16 @@ public class TransferMonitoringService implements TransferSessionListener {
             notifyTerminalListeners(terminalSnapshot);
             trimRecentHistory();
             requestPublish(true);
+            if (error != null) {
+                CentralErrorHandler.getInstance().handleError(error, fileName);
+            } else if (reason != null && !reason.isBlank()
+                    && !reason.toLowerCase().contains("reject")
+                    && !reason.equalsIgnoreCase("cancelled by user")) {
+                CentralErrorHandler.getInstance().handleError(
+                    new AppException(AppErrorCategory.TRANSFER_INTERRUPTED, reason, null),
+                    fileName
+                );
+            }
         }
     }
 

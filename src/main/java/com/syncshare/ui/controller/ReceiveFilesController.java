@@ -1081,4 +1081,11 @@ public class ReceiveFilesController implements NavigationAware {
     ReceiveListenerService getListenerServiceForTesting() {
         return listenerService;
     }
+
+    @Override
+    public void dispose() {
+        if (listenerService != null) {
+            listenerService.dispose();
+        }
+    }
 }
