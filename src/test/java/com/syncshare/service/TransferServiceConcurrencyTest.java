@@ -71,7 +71,10 @@ class TransferServiceConcurrencyTest {
             // The twelfth submission must fail promptly, not queue forever.
             TransferItem rejected = sendTestFile(service, 11).get(5, TimeUnit.SECONDS);
             assertEquals(TransferStatus.FAILED, rejected.status());
-            assertFalse(rejected.note().isBlank(), "Failure must have an explanation");
+            assertTrue(rejected.note().contains("outgoing transfer queue is full"),
+                "The user-visible failure must explain why the transfer was rejected");
+            assertFalse(service.hasActiveOutgoingTransfer("127.0.0.1", 5050,
+                tempDir.resolve("send-11.txt")), "Rejected work must not remain active");
 
             // Releasing the workers lets all previously accepted tasks finish.
             releaseWorkers.countDown();
@@ -83,6 +86,43 @@ class TransferServiceConcurrencyTest {
                 "The service must never run more than three sends concurrently");
         } finally {
             releaseWorkers.countDown();
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void shutdownCancelsRunningAndQueuedTransfersAndCompletesEveryFuture() throws Exception {
+        CountDownLatch workersStarted = new CountDownLatch(3);
+        CountDownLatch keepWorkersBusy = new CountDownLatch(1);
+        AtomicInteger transportStarts = new AtomicInteger();
+        TransferService service = new TransferService((host, port, file, listener) -> {
+            transportStarts.incrementAndGet();
+            workersStarted.countDown();
+            keepWorkersBusy.await();
+        });
+
+        try {
+            List<CompletableFuture<TransferItem>> submissions = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                submissions.add(sendTestFile(service, i));
+            }
+            assertTrue(workersStarted.await(5, TimeUnit.SECONDS), "Three workers should start");
+
+            service.shutdown();
+            service.shutdown(); // Idempotent shutdown is part of the public lifecycle contract.
+
+            for (CompletableFuture<TransferItem> submission : submissions) {
+                assertEquals(TransferStatus.CANCELLED, submission.get(5, TimeUnit.SECONDS).status());
+            }
+            assertEquals(3, transportStarts.get(), "Queued transfer must never start after shutdown");
+            assertTrue(service.getMonitoringService().getActiveSnapshot().isEmpty(),
+                "Cancelled transfers must not remain active in monitoring");
+
+            TransferItem afterShutdown = sendTestFile(service, 99).get(5, TimeUnit.SECONDS);
+            assertEquals(TransferStatus.FAILED, afterShutdown.status());
+            assertTrue(afterShutdown.note().contains("transfer service is shutting down"));
+        } finally {
+            keepWorkersBusy.countDown();
             service.shutdown();
         }
     }
