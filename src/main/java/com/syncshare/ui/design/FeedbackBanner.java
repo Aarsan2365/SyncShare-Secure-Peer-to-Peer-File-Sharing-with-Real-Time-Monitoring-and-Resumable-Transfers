@@ -139,6 +139,13 @@ public class FeedbackBanner extends HBox {
         setManaged(true);
     }
 
+    public void show(SemanticTone tone, String title, String message) {
+        setTone(tone);
+        setTitle(title);
+        setMessage(message);
+        show();
+    }
+
     private void rebuildActions(Button actionBtn) {
         actionSlot.getChildren().clear();
         if (actionBtn != null) {

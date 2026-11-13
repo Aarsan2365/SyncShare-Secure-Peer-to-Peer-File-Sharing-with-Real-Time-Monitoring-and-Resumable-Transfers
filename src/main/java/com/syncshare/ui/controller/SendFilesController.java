@@ -1,5 +1,6 @@
 package com.syncshare.ui.controller;
 
+import com.syncshare.discovery.PeerInfo;
 import com.syncshare.model.ConnectionStatus;
 import com.syncshare.model.NavItemId;
 import com.syncshare.model.TransferDirection;
@@ -63,6 +64,9 @@ public class SendFilesController implements NavigationAware {
     private OutgoingTransferGateway transferGateway;
 
     private FeedbackBanner feedbackBanner;
+    private VBox discoveredPeersBox;
+    private FlowPane discoveredPeersChipsPane;
+    private Label discoveredPeersEmptyLabel;
     private GridPane endpointGrid;
     private ValidatedTextField peerHostField;
     private ValidatedTextField peerPortField;
@@ -137,6 +141,14 @@ public class SendFilesController implements NavigationAware {
         updateSelectedFileSummary(filePathField.getText());
         refreshIdleConnectionStatus();
         renderOutgoingQueue();
+
+        if (services.discoveryManager() != null) {
+            services.discoveryManager().getDiscoveredPeers().addListener(
+                (ListChangeListener<PeerInfo>) change ->
+                    renderDiscoveredPeers(services.discoveryManager().getDiscoveredPeers())
+            );
+            renderDiscoveredPeers(services.discoveryManager().getDiscoveredPeers());
+        }
     }
 
     @Override
@@ -145,6 +157,9 @@ public class SendFilesController implements NavigationAware {
             return;
         }
         services.deviceInfoService().refresh();
+        if (services.discoveryManager() != null) {
+            renderDiscoveredPeers(services.discoveryManager().getDiscoveredPeers());
+        }
         if (!isSubmissionRunning()) {
             updateSelectedFileSummary(filePathField.getText());
             if (!showingTransferOutcome) {
@@ -318,6 +333,8 @@ public class SendFilesController implements NavigationAware {
         filePickerRow.getStyleClass().add("form-row");
         filePickerRow.setAlignment(Pos.BOTTOM_LEFT);
 
+        discoveredPeersBox = buildDiscoveredPeersBox();
+
         selectedFileSummaryBox = buildSelectedFileSummaryBox();
 
         clearButton = UiButtons.create("Clear", UiButtons.Variant.SECONDARY, UiButtons.Size.SM);
@@ -356,9 +373,67 @@ public class SendFilesController implements NavigationAware {
         footerActions.setAlignment(Pos.CENTER_RIGHT);
         footerActions.getChildren().addAll(clearButton, validateButton, cancelButton, sendButton);
 
-        formCard.setBodyContent(endpointGrid, filePickerRow, selectedFileSummaryBox);
+        formCard.setBodyContent(discoveredPeersBox, endpointGrid, filePickerRow, selectedFileSummaryBox);
         formCard.setFooterContent(footerActions);
         return formCard;
+    }
+
+    private VBox buildDiscoveredPeersBox() {
+        VBox box = new VBox(DesignSystem.SPACE_XXS);
+        box.setId("sendDiscoveredPeersBox");
+
+        HBox header = new HBox(DesignSystem.SPACE_XS);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label title = new Label("Discovered Nearby Peers (UDP)");
+        title.getStyleClass().add("text-caption-bold");
+
+        StatusBadge udpBadge = new StatusBadge("UDP 5051", SemanticTone.INFO);
+        udpBadge.setCompact(true);
+        header.getChildren().addAll(title, udpBadge);
+
+        discoveredPeersChipsPane = new FlowPane(DesignSystem.SPACE_XS, DesignSystem.SPACE_XS);
+        discoveredPeersChipsPane.setId("discoveredPeersChipsPane");
+        discoveredPeersChipsPane.setAlignment(Pos.CENTER_LEFT);
+
+        discoveredPeersEmptyLabel = new Label("Searching local network for peers (UDP 5051)...");
+        discoveredPeersEmptyLabel.getStyleClass().add("text-caption");
+        discoveredPeersChipsPane.getChildren().add(discoveredPeersEmptyLabel);
+
+        box.getChildren().addAll(header, discoveredPeersChipsPane);
+        return box;
+    }
+
+    private void renderDiscoveredPeers(List<PeerInfo> peers) {
+        if (discoveredPeersChipsPane == null) {
+            return;
+        }
+        discoveredPeersChipsPane.getChildren().clear();
+        if (peers == null || peers.isEmpty()) {
+            discoveredPeersChipsPane.getChildren().add(discoveredPeersEmptyLabel);
+            return;
+        }
+        for (PeerInfo peer : peers) {
+            Button chip = UiButtons.create(
+                peer.name() + " (" + peer.address() + ":" + peer.transferPort() + ")",
+                UiIcons.create(UiIcons.IconType.DEVICE, UiIcons.Size.SM, SemanticTone.TEAL),
+                UiButtons.Variant.OUTLINE_TEAL,
+                UiButtons.Size.SM
+            );
+            chip.setOnAction(event -> {
+                peerHostField.setText(peer.address());
+                setPortProgrammatically(Integer.toString(peer.transferPort()));
+                refreshIdleConnectionStatus();
+                if (feedbackBanner != null) {
+                    feedbackBanner.show(
+                        SemanticTone.INFO,
+                        "Peer Selected",
+                        "Filled destination endpoint: " + peer.name() + " (" + peer.address() + ":" + peer.transferPort() + ")."
+                    );
+                }
+            });
+            discoveredPeersChipsPane.getChildren().add(chip);
+        }
     }
 
     private HBox buildSelectedFileSummaryBox() {
