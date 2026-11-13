@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.nio.charset.StandardCharsets;
@@ -18,7 +19,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public final class DiscoveryService implements AutoCloseable {
+public final class DiscoveryService implements DeviceDiscoveryService {
 
     private static final int DISCOVERY_PORT = 5051;
     private static final int ANNOUNCE_SECONDS = 3;
@@ -51,7 +52,10 @@ public final class DiscoveryService implements AutoCloseable {
                 name, Integer.toString(transferPort));
         announcement = message.getBytes(StandardCharsets.UTF_8);
 
-        socket = new DatagramSocket(DISCOVERY_PORT);
+        DatagramSocket s = new DatagramSocket(null);
+        s.setReuseAddress(true);
+        s.bind(new InetSocketAddress(DISCOVERY_PORT));
+        socket = s;
         try {
             socket.setBroadcast(true);
         } catch (IOException e) {
@@ -185,6 +189,11 @@ public final class DiscoveryService implements AutoCloseable {
         } catch (IllegalArgumentException ignored) {
             // Ignore announcements with an invalid peer ID or port.
         }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return socket != null && !socket.isClosed();
     }
 
     @Override

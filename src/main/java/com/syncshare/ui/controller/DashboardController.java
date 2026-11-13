@@ -550,6 +550,12 @@ public class DashboardController implements NavigationAware {
 
         deviceService.deviceInfoProperty().addListener((obs, oldVal, newVal) -> updateDeviceInfo(newVal));
         connectionService.statusProperty().addListener((obs, oldVal, newVal) -> updateConnectionStatus(newVal));
+        if (services.discoveryManager() != null) {
+            services.discoveryManager().getDiscoveredPeers().addListener(
+                (javafx.collections.ListChangeListener<com.syncshare.discovery.PeerInfo>) change ->
+                    updateConnectionStatus(connectionService.getStatus())
+            );
+        }
         monitorListener = (active, recent) -> updateTransferSummaries(active, recent);
         monitorSubscription = monitoringService.subscribe(monitorListener);
     }
@@ -582,12 +588,16 @@ public class DashboardController implements NavigationAware {
             UiButtons.Size.SM
         );
 
+        int peerCount = (services != null && services.discoveryManager() != null)
+            ? services.discoveryManager().getDiscoveredPeers().size()
+            : 0;
+        String peerSummary = peerCount > 0 ? " • " + peerCount + " peer(s) discovered (UDP)" : "";
         securityMetricValueLabel.setText("TCP Port " + status.listenPort());
         securityMetricBadge.setText(status.tlsConfigured() ? "mTLS Ready" : "TLS Setup");
         securityMetricBadge.setTone(status.tlsConfigured() ? SemanticTone.SUCCESS : SemanticTone.WARNING);
         securityMetricDetailLabel.setText(
             status.tlsConfigured()
-                ? "Mutual TLS 1.3 certificates verified"
+                ? "Mutual TLS 1.3 certificates verified" + peerSummary
                 : "Set SYNCSHARE_TLS_PASSWORD & peer keystores"
         );
     }

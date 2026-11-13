@@ -9,8 +9,9 @@ import java.util.function.BooleanSupplier;
 /**
  * Clean integration boundary between JavaFX UI tasks/controllers and the
  * SyncShare networking layer, decoupling UI code from socket and TLS APIs.
+ * Extends the high-level {@link TransferClient} contract.
  */
-public interface OutgoingTransferGateway {
+public interface OutgoingTransferGateway extends TransferClient {
 
     /**
      * Observer notified about real backend lifecycle stages and chunk byte progress.
@@ -29,11 +30,7 @@ public interface OutgoingTransferGateway {
 
     TransferService.FileSummary inspectSelectedFile(String filePath);
 
-    /**
-     * Executes an outgoing file transfer synchronously on the caller's background thread
-     * (for example, inside a JavaFX {@link javafx.concurrent.Task}), updating active and
-     * historical transfer state safely across threads.
-     */
+    @Override
     TransferItem sendFileBlocking(
         String transferId,
         String peerHost,
@@ -43,11 +40,14 @@ public interface OutgoingTransferGateway {
         BooleanSupplier cancelledSupplier
     ) throws Exception;
 
+    @Override
     boolean cancelActiveTransfer(String transferId, boolean interruptWorker);
 
+    @Override
     default boolean cancelActiveTransfer(String transferId) {
         return cancelActiveTransfer(transferId, true);
     }
 
+    @Override
     boolean hasActiveOutgoingTransfer(String peerHost, int port, Path file);
 }

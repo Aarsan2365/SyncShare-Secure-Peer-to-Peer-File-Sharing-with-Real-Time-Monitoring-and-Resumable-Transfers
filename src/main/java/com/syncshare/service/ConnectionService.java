@@ -85,6 +85,8 @@ public class ConnectionService implements IncomingTransferGateway {
         FXCollections.observableArrayList();
     private final ObservableList<IncomingRequestItem> unmodifiablePendingRequests =
         FXCollections.unmodifiableObservableList(pendingRequests);
+    private final java.util.List<ConnectionStatusListener> statusListeners =
+        new java.util.concurrent.CopyOnWriteArrayList<>();
 
     private final AtomicInteger nextRequestId = new AtomicInteger(1);
     private final ConcurrentHashMap<Integer, CompletableFuture<Boolean>> pendingDecisions =
@@ -972,9 +974,33 @@ public class ConnectionService implements IncomingTransferGateway {
         }
     }
 
+    public void addStatusListener(ConnectionStatusListener listener) {
+        if (listener != null) {
+            statusListeners.add(listener);
+            ConnectionStatus current = latestStatus;
+            if (current != null) {
+                listener.onConnectionStatusChanged(current);
+            }
+        }
+    }
+
+    public void removeStatusListener(ConnectionStatusListener listener) {
+        if (listener != null) {
+            statusListeners.remove(listener);
+        }
+    }
+
     private void updateStatus(ConnectionStatus next) {
         this.latestStatus = next;
-        runOnFxThread(() -> status.set(next));
+        runOnFxThread(() -> {
+            status.set(next);
+            for (ConnectionStatusListener listener : statusListeners) {
+                try {
+                    listener.onConnectionStatusChanged(next);
+                } catch (Exception ignored) {
+                }
+            }
+        });
     }
 
     private void updateIncomingSession(IncomingTransferSession next) {
