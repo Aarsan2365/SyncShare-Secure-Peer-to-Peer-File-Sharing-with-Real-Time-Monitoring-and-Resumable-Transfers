@@ -70,6 +70,12 @@ public class SyncShareApplication extends Application {
         primaryStage.setScene(loadedView.scene());
         primaryStage.setOnCloseRequest(event -> initiateShutdown());
         primaryStage.centerOnScreen();
+
+        AppSettings settings = loadedView.controller().getServices().settingsService().getSettings();
+        if (settings != null && settings.startMinimized()) {
+            primaryStage.setIconified(true);
+        }
+
         primaryStage.show();
     }
 

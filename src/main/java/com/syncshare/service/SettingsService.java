@@ -163,7 +163,16 @@ public class SettingsService {
         String fieldLabel,
         boolean requireWritable
     ) {
-        return SettingsValidator.validateDirectory(path, fieldLabel, false, requireWritable);
+        return validateDirectory(path, fieldLabel, true, requireWritable);
+    }
+
+    public SettingsValidator.ValidationResult validateDirectory(
+        String path,
+        String fieldLabel,
+        boolean createIfMissing,
+        boolean requireWritable
+    ) {
+        return SettingsValidator.validateDirectory(path, fieldLabel, createIfMissing, requireWritable);
     }
 
     /**
