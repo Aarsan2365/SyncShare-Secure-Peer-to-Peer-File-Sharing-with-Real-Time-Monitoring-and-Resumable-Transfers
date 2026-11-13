@@ -14,6 +14,7 @@ public final class SyncShareServices {
     private final TransferService transferService;
     private final TransferMonitoringService transferMonitoringService;
     private final HistoryService historyService;
+    private final PeerDiscoveryManager discoveryManager;
 
     public SyncShareServices(
         SettingsService settingsService,
@@ -55,12 +56,33 @@ public final class SyncShareServices {
         TransferMonitoringService transferMonitoringService,
         HistoryService historyService
     ) {
+        this(
+            settingsService,
+            deviceInfoService,
+            connectionService,
+            transferService,
+            transferMonitoringService,
+            historyService,
+            new PeerDiscoveryManager(settingsService, deviceInfoService)
+        );
+    }
+
+    public SyncShareServices(
+        SettingsService settingsService,
+        DeviceInfoService deviceInfoService,
+        ConnectionService connectionService,
+        TransferService transferService,
+        TransferMonitoringService transferMonitoringService,
+        HistoryService historyService,
+        PeerDiscoveryManager discoveryManager
+    ) {
         this.settingsService = Objects.requireNonNull(settingsService, "settingsService");
         this.deviceInfoService = Objects.requireNonNull(deviceInfoService, "deviceInfoService");
         this.connectionService = Objects.requireNonNull(connectionService, "connectionService");
         this.transferService = Objects.requireNonNull(transferService, "transferService");
         this.transferMonitoringService = Objects.requireNonNull(transferMonitoringService, "transferMonitoringService");
         this.historyService = Objects.requireNonNull(historyService, "historyService");
+        this.discoveryManager = Objects.requireNonNull(discoveryManager, "discoveryManager");
     }
 
     private static HistoryService createDefaultHistoryService(
@@ -79,7 +101,9 @@ public final class SyncShareServices {
         HistoryService history = createDefaultHistoryService(settings, monitoring);
         TransferService transfers = new TransferService(monitoring);
         ConnectionService connection = new ConnectionService(settings, deviceInfo, transfers, monitoring);
-        return new SyncShareServices(settings, deviceInfo, connection, transfers, monitoring, history);
+        PeerDiscoveryManager discovery = new PeerDiscoveryManager(settings, deviceInfo);
+        discovery.start();
+        return new SyncShareServices(settings, deviceInfo, connection, transfers, monitoring, history, discovery);
     }
 
     public SettingsService settingsService() {
@@ -106,7 +130,12 @@ public final class SyncShareServices {
         return historyService;
     }
 
+    public PeerDiscoveryManager discoveryManager() {
+        return discoveryManager;
+    }
+
     public void shutdown() {
+        discoveryManager.shutdown();
         connectionService.shutdown();
         transferService.shutdown();
         transferMonitoringService.shutdown();

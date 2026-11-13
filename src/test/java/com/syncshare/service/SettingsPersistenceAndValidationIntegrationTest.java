@@ -582,6 +582,7 @@ public class SettingsPersistenceAndValidationIntegrationTest {
             assertEquals(1, active.size());
             assertEquals("tx-mon-1", active.get(0).transferId());
             assertEquals(512L, active.get(0).transferredBytes());
+            monitoring.shutdown();
             settings.shutdown();
         });
     }
@@ -597,25 +598,30 @@ public class SettingsPersistenceAndValidationIntegrationTest {
         JsonTransferHistoryRepository historyRepo = new JsonTransferHistoryRepository(historyFile);
         HistoryService history = new HistoryService(historyRepo, settings, monitoring);
 
-        TransferRecord record = new TransferRecord(
-            "tx-hist-1",
-            "document.pdf",
-            4096L,
-            TransferHistoryDirection.RECEIVE,
-            "127.0.0.1:5050",
-            Instant.now(),
-            java.time.Duration.ofSeconds(2),
-            TransferHistoryStatus.COMPLETED,
-            "received_files/document.pdf",
-            "Verified SHA-256"
-        );
+        try {
+            TransferRecord record = new TransferRecord(
+                "tx-hist-1",
+                "document.pdf",
+                4096L,
+                TransferHistoryDirection.RECEIVE,
+                "127.0.0.1:5050",
+                Instant.now(),
+                java.time.Duration.ofSeconds(2),
+                TransferHistoryStatus.COMPLETED,
+                "received_files/document.pdf",
+                "Verified SHA-256"
+            );
 
-        historyRepo.save(List.of(record));
-        List<TransferRecord> loaded = historyRepo.load().records();
-        assertEquals(1, loaded.size());
-        assertEquals("tx-hist-1", loaded.get(0).transferId());
-
-        settings.shutdown();
+            historyRepo.save(List.of(record));
+            List<TransferRecord> loaded = historyRepo.load().records();
+            assertEquals(1, loaded.size());
+            assertEquals("tx-hist-1", loaded.get(0).transferId());
+            assertEquals(historyFile, history.getStorageLocation());
+        } finally {
+            history.shutdown();
+            monitoring.shutdown();
+            settings.shutdown();
+        }
     }
 
     @Test
