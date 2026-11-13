@@ -1,5 +1,6 @@
 package com.syncshare.ui;
 
+import com.syncshare.model.AppSettings;
 import com.syncshare.service.SyncShareServices;
 import com.syncshare.ui.design.DesignSystem;
 import com.syncshare.ui.design.UiDialogs;
