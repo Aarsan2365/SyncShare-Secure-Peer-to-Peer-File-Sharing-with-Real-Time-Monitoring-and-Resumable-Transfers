@@ -38,6 +38,7 @@ public final class JavaFxToolkitExtension implements BeforeAllCallback, BeforeEa
     public void beforeEach(ExtensionContext context) throws Exception {
         if (isolatedDataDir != null) {
             Files.deleteIfExists(isolatedDataDir.resolve("transfer-history.json"));
+            Files.deleteIfExists(isolatedDataDir.resolve("settings.json"));
         }
     }
 
